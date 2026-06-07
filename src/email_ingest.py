@@ -94,11 +94,12 @@ def poll_inbox() -> PollResult:
             return result
 
         conn.select("INBOX")
-        _, data = conn.search(None, "UNSEEN")
+        # Only pick up emails explicitly sent to STEWARD — subject must contain "STEWARD"
+        _, data = conn.search(None, "UNSEEN", "SUBJECT", "STEWARD")
         msg_ids = [m for m in data[0].split() if m]
         result.emails_scanned = len(msg_ids)
 
-        logger.info("Email poll: %d unseen message(s) in %s", len(msg_ids), settings.steward_email)
+        logger.info("Email poll: %d unseen STEWARD message(s) in %s", len(msg_ids), settings.steward_email)
 
         for msg_id in msg_ids:
             try:

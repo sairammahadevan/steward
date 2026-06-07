@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Architecture · STEWARD{% endblock %}
 {% block page_title %}Architecture{% endblock %}
-{% block page_subtitle %}System design, agent swarm model, and engineering decisions{% endblock %}
+{% block page_subtitle %}System design, engineering decisions, and technical depth{% endblock %}
 
 {% block content %}
 
@@ -10,16 +10,24 @@
   <div class="arch-label">Overview</div>
   <div class="arch-card">
     <p class="arch-intro">
-      STEWARD is a <strong>personal home document management system</strong> built on a
-      privacy-first, local-first architecture. It ingests documents of any type, extracts
-      structured metadata using a cloud LLM (Anthropic Claude), stores everything locally
-      in SQLite, and surfaces time-sensitive reminders proactively via WhatsApp.
+      STEWARD is a <strong>privacy-first, local-first personal document intelligence system</strong>
+      built for a single user on their own machine. It ingests documents of any type — including
+      scanned image PDFs — extracts structured metadata using Anthropic Claude, stores everything
+      in SQLite, and makes it queryable through a conversational interface and full-text search.
     </p>
     <p class="arch-intro" style="margin-top:0.75rem">
-      The system is designed around a <strong>swarm of specialised agents</strong> — each
-      owning a distinct domain — following a phased MVP delivery model with explicit QA
-      gate reviews between each phase.
+      The system uses a <strong>two-model Claude strategy</strong> — Haiku for fast/cheap text
+      extraction, Sonnet for vision (scanned docs) and multi-turn reasoning — backed by a
+      semaphore-limited concurrent API layer with exponential backoff. Every feature is
+      designed to feel local and instant even though heavy processing runs asynchronously
+      in background threads.
     </p>
+    <div class="arch-pillars">
+      <div class="arch-pillar">🖥 <strong>Local-first</strong> — all files on disk, SQLite DB</div>
+      <div class="arch-pillar">🔄 <strong>Async-first</strong> — background threads, live progress</div>
+      <div class="arch-pillar">🤖 <strong>LLM-first</strong> — Claude reads the whole document</div>
+      <div class="arch-pillar">🔒 <strong>Privacy-first</strong> — files never leave the machine</div>
+    </div>
   </div>
 </div>
 
@@ -33,20 +41,43 @@
     <div class="sysdia-local">
       <div class="sysdia-zone-title">🖥 YOUR MACHINE — files never leave this boundary</div>
 
+      <!-- Three ingestion sources -->
+      <div class="sysdia-sources">
+        <div class="sysdia-source">
+          <div class="sysdia-source-icon">📤</div>
+          <div class="sysdia-source-label">Web Upload</div>
+          <div class="sysdia-source-sub">drag-drop · multi-file · 50 MB max</div>
+        </div>
+        <div class="sysdia-source-arrow">→</div>
+        <div class="sysdia-source">
+          <div class="sysdia-source-icon">📧</div>
+          <div class="sysdia-source-label">Email Ingest</div>
+          <div class="sysdia-source-sub">Gmail IMAP · polled every N min · APScheduler</div>
+        </div>
+        <div class="sysdia-source-arrow">→</div>
+        <div class="sysdia-source">
+          <div class="sysdia-source-icon">📝</div>
+          <div class="sysdia-source-label">Paste Text</div>
+          <div class="sysdia-source-sub">inline · SHA-256 deduplication</div>
+        </div>
+      </div>
+
+      <div class="sysdia-arrow-v">↓ all sources feed the same pipeline ↓</div>
+
       <!-- Two flows side-by-side -->
       <div class="sysdia-flows">
 
         <!-- Ingestion flow -->
         <div class="sysdia-flow">
-          <div class="sysdia-flow-label">① Ingestion pipeline</div>
+          <div class="sysdia-flow-label">① Ingestion pipeline (async)</div>
 
           <div class="sysdia-box">
-            <div class="sysdia-box-icon">📄</div>
+            <div class="sysdia-box-icon">🔐</div>
             <div>
-              <div class="sysdia-box-title">Any Document</div>
-              <div class="sysdia-box-sub">PDF · DOCX · TXT · MD · text paste</div>
-              <div class="sysdia-box-sub">Max 50 MB · multi-file upload</div>
-              <div class="sysdia-chip">SHA-256 computed → deduplicated before API call</div>
+              <div class="sysdia-box-title">SHA-256 + Dedup Check</div>
+              <div class="sysdia-box-sub">Hash computed before any API call</div>
+              <div class="sysdia-box-sub">Duplicate? → instant skip, no Claude call</div>
+              <div class="sysdia-chip">File saved to disk immediately; processing is background</div>
             </div>
           </div>
 
@@ -56,10 +87,11 @@
             <div class="sysdia-box-icon">🔍</div>
             <div>
               <div class="sysdia-box-title">Doc Parser <span class="sysdia-lib">PyMuPDF · python-docx</span></div>
-              <div class="sysdia-box-sub"><strong>Type detection:</strong> text PDF · scanned PDF · DOCX · plain text</div>
-              <div class="sysdia-box-sub">Rule: &lt;50 chars/page → classified as <em>scanned</em></div>
-              <div class="sysdia-box-sub">Scanned pages rendered to PNG at 150 dpi → sent as vision input</div>
-              <div class="sysdia-chip">Handles mixed PDFs: text pages as text, scanned pages as images</div>
+              <div class="sysdia-box-sub"><strong>Text PDF:</strong> extract text directly with fitz</div>
+              <div class="sysdia-box-sub"><strong>Scanned PDF:</strong> &lt;50 chars/page → render pages to PNG</div>
+              <div class="sysdia-box-sub"><strong>Mixed PDF:</strong> text pages as text, scanned pages as images</div>
+              <div class="sysdia-box-sub"><strong>Render settings:</strong> first-ingest 100 DPI · re-ingest 150 DPI</div>
+              <div class="sysdia-chip">Max 8 scanned pages sent to Claude — enough to classify any doc</div>
             </div>
           </div>
 
@@ -69,10 +101,25 @@
             <div class="sysdia-box-icon">⚙️</div>
             <div>
               <div class="sysdia-box-title">Extractor</div>
-              <div class="sysdia-box-sub">Sends text or PNG images → Claude Haiku</div>
-              <div class="sysdia-box-sub">Prompts for structured JSON — null if not confident</div>
-              <div class="sysdia-box-sub">Strips markdown fences · parses JSON response</div>
-              <div class="sysdia-chip">Output: item · type · purchase_date · next_due_date · tags · notes</div>
+              <div class="sysdia-box-sub"><strong>Text docs:</strong> Haiku — fast, cheap, accurate for structured text</div>
+              <div class="sysdia-box-sub"><strong>Scanned/image:</strong> Sonnet — superior vision and OCR reasoning</div>
+              <div class="sysdia-box-sub">JSON output: item · type · purchase_date · next_due_date · tags · notes</div>
+              <div class="sysdia-box-sub">Concurrency: <code>Semaphore(2)</code> — max 2 simultaneous API calls</div>
+              <div class="sysdia-box-sub">Retry: 4× with exponential backoff (6s → 12s → 24s → 48s)</div>
+              <div class="sysdia-chip">Re-ingest: 150 DPI + Sonnet vision regardless of doc type</div>
+            </div>
+          </div>
+
+          <div class="sysdia-arrow-v">↓</div>
+
+          <div class="sysdia-box">
+            <div class="sysdia-box-icon">📊</div>
+            <div>
+              <div class="sysdia-box-title">IngestTracker</div>
+              <div class="sysdia-box-sub">Thread-safe in-memory job registry (Lock + dict)</div>
+              <div class="sysdia-box-sub">States: queued → processing → done | error | duplicate</div>
+              <div class="sysdia-box-sub">Job IDs stored in Flask session → survive tab navigation</div>
+              <div class="sysdia-chip">Frontend polls /ingest/status every 1.5 s; badge on every page</div>
             </div>
           </div>
         </div>
@@ -82,15 +129,29 @@
 
         <!-- Query flow -->
         <div class="sysdia-flow">
-          <div class="sysdia-flow-label">② Query pipeline</div>
+          <div class="sysdia-flow-label">② Query pipeline (multi-turn)</div>
 
           <div class="sysdia-box">
             <div class="sysdia-box-icon">🌐</div>
             <div>
               <div class="sysdia-box-title">Flask Web UI <span class="sysdia-lib">Flask · Jinja2</span></div>
-              <div class="sysdia-box-sub">Dashboard · Upload · Documents · Ask · Architecture</div>
-              <div class="sysdia-box-sub">Single process · single port (5001) · no build pipeline</div>
-              <div class="sysdia-chip">Double-click launcher: STEWARD.command opens browser automatically</div>
+              <div class="sysdia-box-sub">Dashboard · Upload · Documents · Ask · Architecture · About</div>
+              <div class="sysdia-box-sub">Single process · port 5001 · no JS build pipeline</div>
+              <div class="sysdia-box-sub">Session storage: chat history · recent job IDs</div>
+              <div class="sysdia-chip">STEWARD.command: double-click launcher opens browser automatically</div>
+            </div>
+          </div>
+
+          <div class="sysdia-arrow-v">↓</div>
+
+          <div class="sysdia-box">
+            <div class="sysdia-box-icon">🔎</div>
+            <div>
+              <div class="sysdia-box-title">Retrieval — keyword match</div>
+              <div class="sysdia-box-sub">Searches item · type · filename · tags · notes in SQLite</div>
+              <div class="sysdia-box-sub">Broad queries ("list all") → all docs loaded</div>
+              <div class="sysdia-box-sub">Specific queries → ranked match, top results only</div>
+              <div class="sysdia-chip">No embeddings, no chunking — Claude reads the full document</div>
             </div>
           </div>
 
@@ -99,26 +160,40 @@
           <div class="sysdia-box sysdia-box--api">
             <div class="sysdia-box-icon">💬</div>
             <div>
-              <div class="sysdia-box-title">Query Engine</div>
-              <div class="sysdia-box-sub"><strong>Step 1 — retrieve:</strong> keyword match against item, type, tags, notes, filename in SQLite</div>
-              <div class="sysdia-box-sub"><strong>Step 2 — read:</strong> loads full document text from disk</div>
-              <div class="sysdia-box-sub"><strong>Step 3 — answer:</strong> sends doc + question → Claude Sonnet</div>
-              <div class="sysdia-chip">No chunking · no embeddings · Claude reads the whole document in-context</div>
+              <div class="sysdia-box-title">Query Engine — multi-turn</div>
+              <div class="sysdia-box-sub">System prompt: vault context (all relevant docs) + role</div>
+              <div class="sysdia-box-sub">Messages array: full conversation history + new question</div>
+              <div class="sysdia-box-sub">Model: Sonnet — best reasoning + large context window</div>
+              <div class="sysdia-box-sub">History: stored in Flask session, last 40 messages kept</div>
+              <div class="sysdia-chip">Native multi-turn: Claude remembers the full conversation</div>
+            </div>
+          </div>
+
+          <div class="sysdia-arrow-v">↓</div>
+
+          <div class="sysdia-box">
+            <div class="sysdia-box-icon">📋</div>
+            <div>
+              <div class="sysdia-box-title">Documents View</div>
+              <div class="sysdia-box-sub">Instant JS search · type filter chips · grouped by type</div>
+              <div class="sysdia-box-sub">Open in default Mac app · Mark done · Re-ingest</div>
+              <div class="sysdia-box-sub">Overdue detection · token + file size stats per doc</div>
+              <div class="sysdia-chip">Re-ingest available from Ask page mid-conversation</div>
             </div>
           </div>
         </div>
 
       </div><!-- /sysdia-flows -->
 
-      <!-- SQLite — spans full width -->
-      <div class="sysdia-arrow-v">↓ &nbsp;&nbsp; ↓</div>
+      <!-- SQLite -->
+      <div class="sysdia-arrow-v">↓&nbsp;&nbsp;&nbsp;↓</div>
       <div class="sysdia-db">
         <div class="sysdia-box-icon">🗄️</div>
         <div>
-          <div class="sysdia-box-title">SQLite Database — steward.db <span class="sysdia-lib">zero-ops · single file · built into Python</span></div>
-          <div class="sysdia-box-sub"><strong>Schema:</strong> id · sha256 (UNIQUE) · filename · doc_path · doc_type · item · type · purchase_date · next_due_date · notes · tags · created_at</div>
-          <div class="sysdia-box-sub"><strong>Design choice:</strong> structured metadata cards — no vector index, no embeddings, no separate server</div>
-          <div class="sysdia-box-note">Files stay on disk at ~/Documents/steward/ · DB stores the path, not the bytes · SHA-256 prevents re-ingestion of duplicates</div>
+          <div class="sysdia-box-title">SQLite — steward.db <span class="sysdia-lib">zero-ops · single file · built into Python</span></div>
+          <div class="sysdia-box-sub"><strong>Schema:</strong> id · sha256 (UNIQUE) · filename · doc_path · doc_type · item · type · purchase_date · next_due_date · notes · tags · created_at · status · file_size_bytes · input_tokens · output_tokens</div>
+          <div class="sysdia-box-sub"><strong>Safe migrations:</strong> ALTER TABLE in try/except — never breaks existing databases on upgrade</div>
+          <div class="sysdia-box-note">Files stay on disk · DB stores the path and metadata, not the bytes · SHA-256 prevents re-ingestion of duplicates</div>
         </div>
       </div>
 
@@ -127,8 +202,10 @@
       <div class="sysdia-scheduler">
         <div class="sysdia-box-icon">⏰</div>
         <div>
-          <div class="sysdia-box-title">Scheduler <span class="sysdia-lib">APScheduler</span> <span class="sysdia-badge">MVP 3</span></div>
-          <div class="sysdia-box-sub">Runs daily as background thread · no separate process · queries SQLite for <code>next_due_date</code> within 30-day window · triggers Twilio →</div>
+          <div class="sysdia-box-title">APScheduler <span class="sysdia-lib">BackgroundScheduler · UTC</span> <span class="sysdia-badge sysdia-badge--shipped">Shipped</span></div>
+          <div class="sysdia-box-sub">Email poll job: IMAP check every N minutes (configurable) · misfire grace: 60s</div>
+          <div class="sysdia-box-sub">Runs as background thread in same process — no separate service</div>
+          <div class="sysdia-box-sub"><strong>Coming MVP 3:</strong> due-date job → queries SQLite → triggers Twilio WhatsApp</div>
         </div>
       </div>
 
@@ -145,10 +222,9 @@
           <div class="sysdia-box-icon">🤖</div>
           <div>
             <div class="sysdia-box-title">Claude Haiku</div>
-            <div class="sysdia-box-sub"><code>claude-haiku-4-5</code></div>
-            <div class="sysdia-box-sub">Ingestion: structured JSON extraction</div>
-            <div class="sysdia-box-sub">Handles text + vision (scanned PDFs)</div>
-            <div class="sysdia-box-sub">Retry: 3× with 4 s exponential backoff</div>
+            <div class="sysdia-box-sub"><code>claude-haiku-4-5-20251001</code></div>
+            <div class="sysdia-box-sub"><strong>Used for:</strong> text PDF · DOCX · plain text extraction</div>
+            <div class="sysdia-box-sub">Fast, cheap, accurate on structured text documents</div>
           </div>
         </div>
 
@@ -159,14 +235,41 @@
           <div>
             <div class="sysdia-box-title">Claude Sonnet</div>
             <div class="sysdia-box-sub"><code>claude-sonnet-4-6</code></div>
-            <div class="sysdia-box-sub">Query: reads full doc + answers in plain English</div>
-            <div class="sysdia-box-sub">Returns answer with document citation</div>
-            <div class="sysdia-box-sub">Large context window — no chunking needed</div>
+            <div class="sysdia-box-sub"><strong>Used for:</strong> scanned PDFs (vision) · all re-ingests · multi-turn Q&amp;A</div>
+            <div class="sysdia-box-sub">Superior OCR reasoning · large context window for full-doc Q&amp;A</div>
+          </div>
+        </div>
+
+        <div class="sysdia-api-spacer"></div>
+
+        <div class="sysdia-box sysdia-box--purple">
+          <div class="sysdia-box-icon">🔄</div>
+          <div>
+            <div class="sysdia-box-title">Retry strategy</div>
+            <div class="sysdia-box-sub">Max 4 attempts per call</div>
+            <div class="sysdia-box-sub">Initial backoff: 6 s (doubles each retry)</div>
+            <div class="sysdia-box-sub">Handles: RateLimitError · APIConnectionError · 5xx</div>
           </div>
         </div>
 
         <div class="sysdia-privacy">
-          🔒 Only text transits API · deleted ≤ 7 days · never used for model training · actual files stay on your machine
+          🔒 Only document text transits API · deleted ≤ 7 days · never used for model training · actual files stay on your machine
+        </div>
+      </div>
+
+      <!-- Gmail zone -->
+      <div class="sysdia-api-zone sysdia-api-zone--blue">
+        <div class="sysdia-zone-title sysdia-zone-title--blue">GMAIL IMAP <span class="sysdia-badge sysdia-badge--shipped">Shipped</span></div>
+
+        <div class="sysdia-box sysdia-box--blue">
+          <div class="sysdia-box-icon">📧</div>
+          <div>
+            <div class="sysdia-box-title">Email Ingest</div>
+            <div class="sysdia-box-sub">IMAP4_SSL to imap.gmail.com:993</div>
+            <div class="sysdia-box-sub">Finds UNSEEN emails with attachments</div>
+            <div class="sysdia-box-sub">Downloads PDF/DOCX · queues ingest job · marks read</div>
+            <div class="sysdia-box-sub">Auth: App Password (not account password)</div>
+          </div>
         </div>
       </div>
 
@@ -177,8 +280,9 @@
         <div class="sysdia-box sysdia-box--green">
           <div class="sysdia-box-icon">📱</div>
           <div>
-            <div class="sysdia-box-title">WhatsApp Alert</div>
-            <div class="sysdia-box-sub">Delivered to your phone — no app open needed</div>
+            <div class="sysdia-box-title">Due Date Alerts</div>
+            <div class="sysdia-box-sub">APScheduler fires daily</div>
+            <div class="sysdia-box-sub">Queries docs due within 30 days</div>
             <div class="sysdia-box-sub"><em>"Bike service due in 12 days"</em></div>
           </div>
         </div>
@@ -191,112 +295,65 @@
   <div class="sysdia-legend">
     <span class="legend-item legend-local">■ Stays on your machine</span>
     <span class="legend-item legend-api">■ Transits Anthropic API (transient, deleted ≤7d)</span>
-    <span class="legend-item legend-mvp3">■ MVP 3 — coming soon</span>
+    <span class="legend-item legend-shipped">■ Shipped</span>
+    <span class="legend-item legend-mvp3">■ MVP 3 — next</span>
   </div>
 </div>
 
-<!-- ── Swarm Agent Architecture ── -->
+<!-- ── Key Engineering Decisions ── -->
 <div class="arch-section">
-  <div class="arch-label">Swarm Agent Architecture</div>
-  <p class="arch-intro" style="margin-bottom:1.25rem">
-    STEWARD is built by a <strong>swarm of 5 specialised agents</strong>, each with clearly
-    defined file ownership and responsibilities. No agent touches another agent's domain.
-    This pattern enables parallel development, clear accountability, and meaningful QA
-    gate reviews between each MVP.
-  </p>
+  <div class="arch-label">Key Engineering Decisions</div>
 
-  <div class="agent-grid">
-    <div class="agent-card">
-      <div class="agent-header">
-        <span class="agent-icon">🎯</span>
-        <div>
-          <div class="agent-name">Product Owner</div>
-          <div class="agent-owns">Owns: <code>.swarm/board/</code></div>
-        </div>
-      </div>
-      <p>Represents user needs. Maintains the backlog and sprint board. Makes MVP gate decisions
-      based on QA reviews. Ruthlessly cuts scope when phases grow beyond definition.</p>
-      <div class="agent-principle">Principle: "Would Sairam actually use this daily?"</div>
+  <div class="decision-grid">
+    <div class="decision-card">
+      <div class="decision-icon">⚡</div>
+      <div class="decision-title">Async-first ingestion</div>
+      <p>Files are saved to disk and an HTTP redirect fires immediately. Background <code>threading.Thread(daemon=True)</code> handles all Claude API calls. The user sees live progress without waiting at a loading screen. Job state survives tab switches via Flask session.</p>
     </div>
-
-    <div class="agent-card">
-      <div class="agent-header">
-        <span class="agent-icon">🏛️</span>
-        <div>
-          <div class="agent-name">Architect</div>
-          <div class="agent-owns">Owns: <code>.swarm/architecture/</code> · <code>pyproject.toml</code></div>
-        </div>
-      </div>
-      <p>Owns system design and cross-cutting concerns. Writes Architecture Decision Records
-      (ADRs) to document every significant technology choice with explicit tradeoffs. Guards
-      against over-engineering.</p>
-      <div class="agent-principle">Principle: "Can I remove this and still solve the problem?"</div>
+    <div class="decision-card">
+      <div class="decision-icon">🎛</div>
+      <div class="decision-title">Semaphore-limited API concurrency</div>
+      <p><code>threading.Semaphore(2)</code> serialises Claude API calls. Without this, uploading 5 scanned PDFs simultaneously would send 5 large image payloads in parallel — causing consistent API timeouts. Two concurrent calls is the empirically safe limit.</p>
     </div>
-
-    <div class="agent-card">
-      <div class="agent-header">
-        <span class="agent-icon">⚙️</span>
-        <div>
-          <div class="agent-name">Backend Developer</div>
-          <div class="agent-owns">Owns: <code>src/</code> (non-UI)</div>
-        </div>
-      </div>
-      <p>Owns all Python logic — Claude client, document parser, metadata extractor, SQLite
-      layer, query engine, scheduler, and alerter. Every module is independently testable
-      with typed interfaces.</p>
-      <div class="agent-principle">Principle: "Logging and error handling are not optional."</div>
+    <div class="decision-card">
+      <div class="decision-icon">🧠</div>
+      <div class="decision-title">Two-model extraction strategy</div>
+      <p>Haiku handles text extraction — fast and cheap for structured docs. Sonnet handles vision extraction — scanned PDFs need Sonnet's OCR reasoning. Re-ingests always use Sonnet + 150 DPI (vs 100 DPI first-pass) because quality is the explicit goal at that point.</p>
     </div>
-
-    <div class="agent-card">
-      <div class="agent-header">
-        <span class="agent-icon">🎨</span>
-        <div>
-          <div class="agent-name">Frontend Developer</div>
-          <div class="agent-owns">Owns: <code>src/ui/</code></div>
-        </div>
-      </div>
-      <p>Owns the Flask UI — routes, Jinja2 templates, and CSS. Calls backend functions cleanly
-      with no business logic in the UI layer. Responsible for loading states, error handling,
-      and making the system feel effortless.</p>
-      <div class="agent-principle">Principle: "If you have to think about how to use a page, it's too complicated."</div>
+    <div class="decision-card">
+      <div class="decision-icon">🗄</div>
+      <div class="decision-title">SQLite over vector database</div>
+      <p>Previous attempt used Qdrant — separate server, embedding pipeline, chunking strategy. STEWARD uses SQLite one row per document, keyword match for retrieval, then Claude reads the full document in-context. Zero ops, no new dependency, works at personal collection scale.</p>
     </div>
-
-    <div class="agent-card">
-      <div class="agent-header">
-        <span class="agent-icon">🔍</span>
-        <div>
-          <div class="agent-name">QA Agent</div>
-          <div class="agent-owns">Owns: <code>tests/</code> · <code>.swarm/reviews/</code></div>
-        </div>
-      </div>
-      <p>Reads everything, writes all tests, produces the gate review that determines whether
-      an MVP can proceed. Checks every acceptance criterion. Never implements fixes — only
-      reports issues for the relevant agent to address.</p>
-      <div class="agent-principle">Principle: "A false PASS is worse than a FAIL."</div>
+    <div class="decision-card">
+      <div class="decision-icon">🔄</div>
+      <div class="decision-title">Native multi-turn via messages API</div>
+      <p>Chat history stored as a proper Claude messages array <code>[{role, content}]</code> in Flask session. Document context lives in the system prompt. Each request passes full history to the Anthropic messages API — Claude maintains context natively without any summarisation needed.</p>
+    </div>
+    <div class="decision-card">
+      <div class="decision-icon">🛡</div>
+      <div class="decision-title">Safe schema migrations</div>
+      <p>Every new column is added with <code>ALTER TABLE … ADD COLUMN</code> inside a <code>try/except OperationalError</code>. No migration framework, no version tracking — just idempotent statements. Existing databases upgrade silently on restart.</p>
     </div>
   </div>
 </div>
 
-<!-- ── ADR Summary ── -->
+<!-- ── ADRs ── -->
 <div class="arch-section">
   <div class="arch-label">Architecture Decision Records</div>
-  <p class="arch-intro" style="margin-bottom:1.25rem">
-    Every significant technology choice is documented as an ADR — capturing the context,
-    the decision, and the explicit tradeoffs accepted. These live in <code>.swarm/architecture/</code>.
-  </p>
 
   <div class="adr-list">
     <div class="adr-card">
       <div class="adr-id">ADR-001</div>
       <div class="adr-title">Claude API over local LLMs</div>
       <div class="adr-body">
-        <strong>Context:</strong> Previous attempt used Ollama + Gemma 3B on an M3 8GB MacBook.
-        The machine ran out of memory, crashed during inference, and 3B models produced unreliable
+        <strong>Context:</strong> Previous attempt ran Ollama + Gemma 3B locally on an M3 8GB Mac.
+        The machine ran out of memory mid-inference, crashed, and 3B models produced unreliable
         extraction from legal documents and scanned images.<br><br>
-        <strong>Decision:</strong> Use Anthropic Claude API. Haiku for ingestion (fast, cheap),
-        Sonnet for query answering (better reasoning).<br><br>
-        <strong>Tradeoff accepted:</strong> Document text transits Anthropic servers during API calls.
-        Mitigated by: 7-day deletion policy, no training use, actual files stay local.
+        <strong>Decision:</strong> Anthropic Claude API. Haiku for text ingestion (fast, cheap).
+        Sonnet for vision and query answering (better reasoning, superior OCR).<br><br>
+        <strong>Tradeoff accepted:</strong> Document text transits Anthropic servers. Mitigated by:
+        7-day deletion policy, no training use, actual files never leave the machine.
       </div>
     </div>
 
@@ -304,52 +361,64 @@
       <div class="adr-id">ADR-002</div>
       <div class="adr-title">SQLite over vector database</div>
       <div class="adr-body">
-        <strong>Context:</strong> Previous attempt used Qdrant vector DB, requiring a separate
-        server process, embedding pipelines, and chunking strategy decisions — all of which
-        contributed to the project stalling.<br><br>
+        <strong>Context:</strong> Previous attempt used Qdrant vector DB — separate server process,
+        embedding pipelines, chunking strategy — all of which contributed to the project stalling.<br><br>
         <strong>Decision:</strong> SQLite with structured metadata cards. One row per document.
-        Keyword matching for retrieval. Claude handles the full document in-context.<br><br>
+        Keyword matching for retrieval. Claude handles the full document in-context using its
+        large context window — no chunking needed.<br><br>
         <strong>Tradeoff accepted:</strong> No semantic/fuzzy search across content. Acceptable at
-        personal document scale (50–200 documents). Vector search can be added if collection grows.
+        personal document scale (50–300 documents). Vector search can layer on top if the collection grows.
       </div>
     </div>
 
     <div class="adr-card">
       <div class="adr-id">ADR-003</div>
-      <div class="adr-title">Flask over Streamlit or FastAPI</div>
+      <div class="adr-title">Flask over Streamlit or FastAPI+React</div>
       <div class="adr-body">
         <strong>Context:</strong> Streamlit's execution model caused state management issues.
-        FastAPI + separate Streamlit frontend added operational complexity for a personal tool.<br><br>
-        <strong>Decision:</strong> Flask with Jinja2 templates. Single process, single port,
-        one command to run. No JavaScript build pipeline.<br><br>
-        <strong>Tradeoff accepted:</strong> Full page reloads on form submit. No real-time updates.
-        Acceptable for personal-use ingestion and query workflows.
+        FastAPI + React added a JavaScript build pipeline for a personal tool.<br><br>
+        <strong>Decision:</strong> Flask with Jinja2. Single process, single port, one Python command.
+        No build step. Server-side rendering with targeted JS for polling and search.<br><br>
+        <strong>Tradeoff accepted:</strong> Full page reloads on form submit. Mitigated by background
+        threading (ingestion is async) and JS-based live search and progress polling.
       </div>
     </div>
 
     <div class="adr-card">
       <div class="adr-id">ADR-004</div>
-      <div class="adr-title">PyMuPDF for document parsing</div>
+      <div class="adr-title">PyMuPDF for PDF parsing</div>
       <div class="adr-body">
-        <strong>Context:</strong> STEWARD must handle text PDFs, scanned (image-based) PDFs,
-        and DOCX. The parser must detect document type and route correctly — text extraction
-        for text PDFs, image conversion for scanned pages.<br><br>
-        <strong>Decision:</strong> PyMuPDF for PDF parsing and image rendering. python-docx for
-        DOCX. Detection rule: &lt;50 characters per page = treat as scanned.<br><br>
-        <strong>Tradeoff accepted:</strong> AGPL licence (acceptable for personal use). Image
-        conversion increases token usage for scanned documents.
+        <strong>Context:</strong> STEWARD must handle text PDFs, scanned PDFs, and mixed PDFs.
+        The parser must detect type and route correctly without manual classification.<br><br>
+        <strong>Decision:</strong> PyMuPDF for PDF parsing and PNG rendering. Detection rule:
+        &lt;50 characters per page = classified as scanned. Scanned pages rendered at 100 DPI
+        (first pass) or 150 DPI (re-ingest). Cap at 8 pages per API call.<br><br>
+        <strong>Tradeoff accepted:</strong> AGPL licence — acceptable for personal use. Higher token
+        cost for image-based extraction vs text; mitigated by using Haiku for text, Sonnet for images.
+      </div>
+    </div>
+
+    <div class="adr-card">
+      <div class="adr-id">ADR-005</div>
+      <div class="adr-title">Two-model extraction: Haiku for text, Sonnet for vision</div>
+      <div class="adr-body">
+        <strong>Context:</strong> Initial build used Haiku for all extraction including scanned PDFs.
+        Vision quality on Haiku for low-contrast scanned documents (legal deeds, receipts) was poor —
+        dates missed, names hallucinated.<br><br>
+        <strong>Decision:</strong> Route by doc type. Text PDFs → Haiku (4× cheaper). Scanned/mixed
+        PDFs → Sonnet (significantly better OCR reasoning). Re-ingests always use Sonnet regardless
+        of type, since the user has explicitly asked for higher quality.<br><br>
+        <strong>Tradeoff accepted:</strong> Higher per-document cost for scanned docs. Justified by
+        dramatically better extraction quality on exactly the docs that matter most — legal papers,
+        property documents, scanned receipts.
       </div>
     </div>
   </div>
 </div>
 
-<!-- ── MVP Progression ── -->
+<!-- ── MVP Timeline ── -->
 <div class="arch-section">
-  <div class="arch-label">MVP Delivery Model</div>
-  <p class="arch-intro" style="margin-bottom:1.25rem">
-    Each MVP is gated — no code for the next phase begins until the current phase passes
-    QA review. This prevents over-building and ensures each increment is usable on its own.
-  </p>
+  <div class="arch-label">Delivery Timeline</div>
 
   <div class="mvp-timeline">
     <div class="mvp-item mvp-done">
@@ -357,23 +426,31 @@
       <div class="mvp-content">
         <div class="mvp-label">MVP 1 · Shipped</div>
         <div class="mvp-title">Ingest & Extract</div>
-        <p>Upload any document → Claude extracts structured metadata card → stored in SQLite → visible in UI. SHA-256 deduplication. Text and scanned PDF support.</p>
+        <p>Multi-format upload · background async processing · SHA-256 deduplication · text and scanned PDF detection · Claude extracts structured JSON · SQLite storage · real-time progress tracking · pulsing sidebar badge · duplicate detection</p>
       </div>
     </div>
     <div class="mvp-item mvp-done">
       <div class="mvp-dot"></div>
       <div class="mvp-content">
         <div class="mvp-label">MVP 2 · Shipped</div>
-        <div class="mvp-title">Ask Anything</div>
-        <p>Natural language questions answered from document vault. Keyword-based retrieval from SQLite, full document context sent to Claude Sonnet, cited answers returned.</p>
+        <div class="mvp-title">Ask Anything + Document Intelligence</div>
+        <p>Multi-turn chat · full conversation history passed natively to Claude · vault-aware system prompt · instant JS search · type filter chips · grouped document view · overdue detection · mark done · open in Mac app · re-ingest (Sonnet + 150 DPI) · token and file size tracking per document · re-ingest trigger from Ask page mid-conversation</p>
+      </div>
+    </div>
+    <div class="mvp-item mvp-done">
+      <div class="mvp-dot"></div>
+      <div class="mvp-content">
+        <div class="mvp-label">MVP 2.5 · Shipped</div>
+        <div class="mvp-title">Email Ingest</div>
+        <p>Gmail IMAP polling via APScheduler · configurable poll interval · forward any PDF or DOCX to your address · attachment downloaded, saved to docs/, queued for extraction · email marked read after successful ingest · "Check now" manual trigger · status indicator on Upload page</p>
       </div>
     </div>
     <div class="mvp-item mvp-next">
       <div class="mvp-dot"></div>
       <div class="mvp-content">
         <div class="mvp-label">MVP 3 · Next</div>
-        <div class="mvp-title">Proactive Alerts</div>
-        <p>APScheduler runs daily, queries SQLite for items due within configurable window, sends WhatsApp message via Twilio API. No action required from user.</p>
+        <div class="mvp-title">Proactive WhatsApp Alerts</div>
+        <p>APScheduler daily job · queries SQLite for items due within configurable window · Twilio API delivers WhatsApp message to your phone · "Your Honda Activa service is due in 7 days" · no user action required</p>
       </div>
     </div>
   </div>
@@ -383,19 +460,22 @@
 <div class="arch-section">
   <div class="arch-label">Tech Stack</div>
   <div class="stack-grid">
-    <div class="stack-item"><span class="stack-layer">Language</span><span class="stack-tech">Python 3.10+</span><span class="stack-why">Ecosystem, simplicity, Anthropic SDK support</span></div>
-    <div class="stack-item"><span class="stack-layer">LLM</span><span class="stack-tech">Anthropic Claude API</span><span class="stack-why">Quality, privacy policy, vision + text in one model</span></div>
-    <div class="stack-item"><span class="stack-layer">Database</span><span class="stack-tech">SQLite</span><span class="stack-why">Zero-ops, single file, built into Python</span></div>
-    <div class="stack-item"><span class="stack-layer">Web</span><span class="stack-tech">Flask + Jinja2</span><span class="stack-why">Simple, single process, no build pipeline</span></div>
-    <div class="stack-item"><span class="stack-layer">PDF parsing</span><span class="stack-tech">PyMuPDF</span><span class="stack-why">Text extraction + scanned page image rendering</span></div>
-    <div class="stack-item"><span class="stack-layer">DOCX</span><span class="stack-tech">python-docx</span><span class="stack-why">Table and paragraph extraction</span></div>
-    <div class="stack-item"><span class="stack-layer">Scheduler</span><span class="stack-tech">APScheduler (MVP 3)</span><span class="stack-why">Lightweight local scheduler, no separate process</span></div>
-    <div class="stack-item"><span class="stack-layer">Alerts</span><span class="stack-tech">Twilio (MVP 3)</span><span class="stack-why">WhatsApp delivery, reliable SDK</span></div>
-    <div class="stack-item"><span class="stack-layer">Testing</span><span class="stack-tech">pytest</span><span class="stack-why">42 tests across all modules</span></div>
+    <div class="stack-item"><span class="stack-layer">Language</span><span class="stack-tech">Python 3.10+</span><span class="stack-why">Ecosystem, Anthropic SDK, imaplib built-in</span></div>
+    <div class="stack-item"><span class="stack-layer">LLM</span><span class="stack-tech">Anthropic Claude API</span><span class="stack-why">Vision + text, privacy policy, quality on real documents</span></div>
+    <div class="stack-item"><span class="stack-layer">Extraction</span><span class="stack-tech">Haiku (text) + Sonnet (vision)</span><span class="stack-why">Cost-quality optimised per document type</span></div>
+    <div class="stack-item"><span class="stack-layer">Database</span><span class="stack-tech">SQLite</span><span class="stack-why">Zero-ops, single file, built into Python, safe migrations</span></div>
+    <div class="stack-item"><span class="stack-layer">Web</span><span class="stack-tech">Flask + Jinja2</span><span class="stack-why">Single process, no build pipeline, server-side rendering</span></div>
+    <div class="stack-item"><span class="stack-layer">PDF parsing</span><span class="stack-tech">PyMuPDF</span><span class="stack-why">Text extraction + PNG rendering for scanned pages</span></div>
+    <div class="stack-item"><span class="stack-layer">DOCX</span><span class="stack-tech">python-docx</span><span class="stack-why">Paragraph + table extraction</span></div>
+    <div class="stack-item"><span class="stack-layer">Scheduler</span><span class="stack-tech">APScheduler</span><span class="stack-why">Background jobs in same process, no separate daemon</span></div>
+    <div class="stack-item"><span class="stack-layer">Email</span><span class="stack-tech">imaplib (stdlib)</span><span class="stack-why">IMAP4_SSL polling — zero new dependencies</span></div>
+    <div class="stack-item"><span class="stack-layer">Concurrency</span><span class="stack-tech">threading + Semaphore</span><span class="stack-why">Async ingest jobs, serialised API calls, live progress</span></div>
+    <div class="stack-item"><span class="stack-layer">Alerts</span><span class="stack-tech">Twilio (MVP 3)</span><span class="stack-why">WhatsApp delivery, reliable SDK, wide reach</span></div>
+    <div class="stack-item"><span class="stack-layer">Testing</span><span class="stack-tech">pytest</span><span class="stack-why">Unit + integration tests across all modules</span></div>
   </div>
 </div>
 
-<!-- Styles scoped to this page -->
+<!-- Styles -->
 <style>
 .arch-section { margin-bottom: 2.5rem; }
 .arch-label {
@@ -404,29 +484,136 @@
 }
 .arch-card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); box-shadow: var(--shadow);
-  padding: 1.5rem;
+  border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.5rem;
 }
-.arch-intro { font-size: 0.9rem; color: var(--text-2); line-height: 1.75; }
+.arch-intro { font-size: 0.9rem; color: var(--text); line-height: 1.75; }
 
-/* Agents */
-.agent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-@media (max-width: 640px) { .agent-grid { grid-template-columns: 1fr; } }
+.arch-pillars {
+  display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.25rem;
+}
+.arch-pillar {
+  font-size: 0.8rem; color: var(--text-2); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.75rem;
+}
 
-.agent-card {
-  background: var(--surface); border: 1px solid var(--border);
+/* ── System Diagram ── */
+.sysdia {
+  display: grid; grid-template-columns: 1fr 280px; gap: 1.25rem; align-items: start;
+}
+@media (max-width: 900px) { .sysdia { grid-template-columns: 1fr; } }
+
+.sysdia-local {
+  background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 1.25rem;
+}
+.sysdia-external { display: flex; flex-direction: column; gap: 1rem; }
+.sysdia-zone-title {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+  color: #64748b; margin-bottom: 1rem;
+}
+.sysdia-zone-title--purple { color: #7c3aed; }
+.sysdia-zone-title--green  { color: #16a34a; }
+.sysdia-zone-title--blue   { color: #2563eb; }
+
+/* Sources row */
+.sysdia-sources {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;
+  background: white; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 0.75rem;
+}
+.sysdia-source { flex: 1; text-align: center; }
+.sysdia-source-icon { font-size: 1.2rem; }
+.sysdia-source-label { font-size: 0.75rem; font-weight: 700; color: #0f172a; margin: 0.15rem 0; }
+.sysdia-source-sub { font-size: 0.67rem; color: #94a3b8; line-height: 1.4; }
+.sysdia-source-arrow { font-size: 1rem; color: #94a3b8; flex-shrink: 0; }
+
+/* Flows */
+.sysdia-flows {
+  display: grid; grid-template-columns: 1fr 1px 1fr; gap: 1rem; margin-bottom: 1rem;
+}
+.sysdia-divider { background: #e2e8f0; width: 1px; align-self: stretch; }
+.sysdia-flow { display: flex; flex-direction: column; gap: 0; }
+.sysdia-flow-label {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: #94a3b8; margin-bottom: 0.75rem;
+}
+
+/* Box */
+.sysdia-box {
+  display: flex; align-items: flex-start; gap: 0.6rem;
+  background: white; border: 1.5px solid #e2e8f0; border-radius: 8px;
+  padding: 0.75rem 0.875rem; box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+.sysdia-box--api    { border-color: #ddd6fe; background: #faf5ff; }
+.sysdia-box--purple { border-color: #ddd6fe; background: #faf5ff; }
+.sysdia-box--green  { border-color: #bbf7d0; background: #f0fdf4; }
+.sysdia-box--blue   { border-color: #bfdbfe; background: #eff6ff; }
+.sysdia-box-icon  { font-size: 1.1rem; flex-shrink: 0; line-height: 1.4; }
+.sysdia-box-title { font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.2rem; }
+.sysdia-box-sub   { font-size: 0.75rem; color: #64748b; display: block; line-height: 1.5; }
+.sysdia-box-note  { font-size: 0.72rem; color: #94a3b8; display: block; font-style: italic; margin-top: 0.2rem; }
+.sysdia-lib {
+  font-size: 0.65rem; font-weight: 500; color: #64748b; background: #f1f5f9;
+  border: 1px solid #e2e8f0; padding: 0.1rem 0.4rem; border-radius: 4px;
+  vertical-align: middle; margin-left: 0.4rem;
+}
+.sysdia-chip {
+  display: block; margin-top: 0.4rem; font-size: 0.72rem; color: #2563eb;
+  background: #eff6ff; border-left: 2px solid #93c5fd;
+  padding: 0.25rem 0.5rem; border-radius: 0 4px 4px 0; line-height: 1.5;
+}
+.sysdia-arrow-v {
+  text-align: center; color: #94a3b8; font-size: 0.8rem;
+  line-height: 1; padding: 0.35rem 0;
+}
+.sysdia-db {
+  display: flex; align-items: flex-start; gap: 0.75rem;
+  background: white; border: 1.5px solid #e2e8f0; border-radius: 8px;
+  padding: 0.875rem 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+.sysdia-scheduler {
+  display: flex; align-items: flex-start; gap: 0.75rem;
+  background: white; border: 1.5px solid #86efac; border-radius: 8px;
+  padding: 0.75rem 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+.sysdia-api-zone {
+  border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 1rem;
+  background: #fafafa; display: flex; flex-direction: column; gap: 0;
+}
+.sysdia-api-zone--purple { border-color: #ddd6fe; background: #faf5ff; }
+.sysdia-api-zone--green  { border-color: #bbf7d0; background: #f0fdf4; }
+.sysdia-api-zone--blue   { border-color: #bfdbfe; background: #eff6ff; }
+.sysdia-api-spacer { height: 0.75rem; }
+.sysdia-privacy {
+  margin-top: 0.75rem; font-size: 0.72rem; color: #7c3aed;
+  background: #ede9fe; border-radius: 6px; padding: 0.5rem 0.75rem; line-height: 1.5;
+}
+.sysdia-badge {
+  font-size: 0.63rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  background: #fef3c7; color: #92400e; border: 1px solid #fcd34d;
+  padding: 0.1rem 0.4rem; border-radius: 4px; vertical-align: middle;
+}
+.sysdia-badge--shipped { background: #dcfce7; color: #15803d; border-color: #86efac; }
+.sysdia-legend {
+  display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 0.75rem; font-size: 0.75rem;
+}
+.legend-item  { color: #94a3b8; }
+.legend-local   { color: #475569; }
+.legend-api     { color: #7c3aed; }
+.legend-shipped { color: #15803d; }
+.legend-mvp3    { color: #d97706; }
+
+/* Decision grid */
+.decision-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 700px) { .decision-grid { grid-template-columns: 1fr; } }
+.decision-card {
+  background: var(--surface); border: 1.5px solid var(--border);
   border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow);
 }
-.agent-header { display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.75rem; }
-.agent-icon { font-size: 1.5rem; }
-.agent-name { font-weight: 700; font-size: 0.95rem; color: var(--text); }
-.agent-owns { font-size: 0.75rem; color: var(--text-3); margin-top: 0.1rem; }
-.agent-owns code { background: var(--surface-2); padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.7rem; }
-.agent-card p { font-size: 0.85rem; color: var(--text-2); line-height: 1.65; margin-bottom: 0.75rem; }
-.agent-principle {
-  font-size: 0.75rem; color: var(--accent); font-style: italic;
-  padding: 0.5rem 0.75rem; background: var(--accent-light);
-  border-radius: var(--radius-sm); border-left: 2px solid var(--accent);
+.decision-icon { font-size: 1.4rem; margin-bottom: 0.5rem; }
+.decision-title { font-size: 0.9rem; font-weight: 700; color: var(--text); margin-bottom: 0.4rem; }
+.decision-card p { font-size: 0.82rem; color: var(--text); line-height: 1.65; }
+.decision-card code {
+  background: var(--surface-2); border: 1px solid var(--border);
+  padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.75rem;
 }
 
 /* ADRs */
@@ -442,9 +629,9 @@
   letter-spacing: 0.06em; color: var(--accent); padding-top: 0.15rem;
 }
 .adr-title { font-weight: 600; font-size: 0.9rem; color: var(--text); padding-top: 0.1rem; }
-.adr-body { font-size: 0.82rem; color: var(--text-2); line-height: 1.7; }
+.adr-body { font-size: 0.82rem; color: var(--text); line-height: 1.7; }
 
-/* MVP timeline */
+/* MVP Timeline */
 .mvp-timeline { display: flex; flex-direction: column; gap: 0; position: relative; }
 .mvp-timeline::before {
   content: ''; position: absolute; left: 11px; top: 12px; bottom: 12px;
@@ -471,207 +658,23 @@
 .mvp-done .mvp-label { color: var(--accent); }
 .mvp-next .mvp-label { color: var(--warning); }
 .mvp-title { font-weight: 700; font-size: 0.95rem; color: var(--text); margin-bottom: 0.5rem; }
-.mvp-content p { font-size: 0.83rem; color: var(--text-2); line-height: 1.65; }
-
-/* ── System Diagram ── */
-.sysdia {
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  gap: 1.25rem;
-  align-items: start;
-}
-@media (max-width: 900px) { .sysdia { grid-template-columns: 1fr; } }
-
-.sysdia-local {
-  background: #f8fafc;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 1.25rem;
-}
-.sysdia-external {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.sysdia-zone-title {
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #64748b;
-  margin-bottom: 1rem;
-}
-.sysdia-zone-title--purple { color: #7c3aed; }
-.sysdia-zone-title--green  { color: #16a34a; }
-
-/* Two flows side by side inside local zone */
-.sysdia-flows {
-  display: grid;
-  grid-template-columns: 1fr 1px 1fr;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-.sysdia-divider {
-  background: #e2e8f0;
-  width: 1px;
-  align-self: stretch;
-}
-.sysdia-flow { display: flex; flex-direction: column; }
-.sysdia-flow-label {
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #94a3b8;
-  margin-bottom: 0.75rem;
-}
-
-/* Box styles */
-.sysdia-box {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.6rem;
-  background: white;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 0.75rem 0.875rem;
-  box-shadow: 0 1px 3px rgba(0,0,0,.04);
-}
-.sysdia-box--api    { border-color: #ddd6fe; background: #faf5ff; }
-.sysdia-box--purple { border-color: #ddd6fe; background: #faf5ff; }
-.sysdia-box--green  { border-color: #bbf7d0; background: #f0fdf4; }
-
-.sysdia-box-icon  { font-size: 1.1rem; flex-shrink: 0; line-height: 1.4; }
-.sysdia-box-title { font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.2rem; }
-.sysdia-box-sub   { font-size: 0.75rem; color: #64748b; display: block; line-height: 1.5; }
-.sysdia-box-note  { font-size: 0.72rem; color: #94a3b8; display: block; font-style: italic; margin-top: 0.2rem; }
-
-/* Inline library badge next to title */
-.sysdia-lib {
-  font-size: 0.65rem;
-  font-weight: 500;
-  color: #64748b;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
-  vertical-align: middle;
-  margin-left: 0.4rem;
-}
-
-/* Highlight chip inside a box — for key design decisions */
-.sysdia-chip {
-  display: block;
-  margin-top: 0.4rem;
-  font-size: 0.72rem;
-  color: #2563eb;
-  background: #eff6ff;
-  border-left: 2px solid #93c5fd;
-  padding: 0.25rem 0.5rem;
-  border-radius: 0 4px 4px 0;
-  line-height: 1.5;
-}
-
-/* Arrows */
-.sysdia-arrow-v {
-  text-align: center;
-  color: #94a3b8;
-  font-size: 1rem;
-  line-height: 1;
-  padding: 0.35rem 0;
-}
-
-/* SQLite bar */
-.sysdia-db {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  background: white;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 0.875rem 1rem;
-  margin-bottom: 0;
-  box-shadow: 0 1px 3px rgba(0,0,0,.05);
-}
-.sysdia-db .sysdia-box-icon { font-size: 1.4rem; }
-
-/* Scheduler bar */
-.sysdia-scheduler {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  background: white;
-  border: 1.5px solid #fcd34d;
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-  box-shadow: 0 1px 3px rgba(0,0,0,.04);
-}
-
-/* External zone panels */
-.sysdia-api-zone {
-  border: 1.5px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 1rem;
-  background: #fafafa;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-.sysdia-api-zone--purple { border-color: #ddd6fe; background: #faf5ff; }
-.sysdia-api-zone--green  { border-color: #bbf7d0; background: #f0fdf4; }
-
-.sysdia-api-spacer { height: 0.75rem; }
-
-.sysdia-privacy {
-  margin-top: 0.75rem;
-  font-size: 0.72rem;
-  color: #7c3aed;
-  background: #ede9fe;
-  border-radius: 6px;
-  padding: 0.5rem 0.75rem;
-  line-height: 1.5;
-}
-
-/* Badge */
-.sysdia-badge {
-  font-size: 0.65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  background: #fef3c7;
-  color: #92400e;
-  border: 1px solid #fcd34d;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
-  vertical-align: middle;
-}
-
-/* Legend */
-.sysdia-legend {
-  display: flex;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-  margin-top: 0.75rem;
-  font-size: 0.75rem;
-}
-.legend-item { color: #94a3b8; }
-.legend-local  { color: #475569; }
-.legend-api    { color: #7c3aed; }
-.legend-mvp3   { color: #d97706; }
+.mvp-content p { font-size: 0.83rem; color: var(--text); line-height: 1.65; }
 
 /* Stack table */
-.stack-grid { display: grid; gap: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+.stack-grid {
+  display: grid; gap: 0; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
+}
 .stack-item {
-  display: grid; grid-template-columns: 120px 180px 1fr;
+  display: grid; grid-template-columns: 130px 220px 1fr;
   padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border-light);
   font-size: 0.85rem; align-items: center; gap: 1rem;
 }
 .stack-item:last-child { border-bottom: none; }
 .stack-item:nth-child(even) { background: var(--surface-2); }
 .stack-layer { font-size: 0.75rem; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
-.stack-tech { font-weight: 600; color: var(--text); }
-.stack-why { color: var(--text-2); }
+.stack-tech  { font-weight: 600; color: var(--text); }
+.stack-why   { color: var(--text); }
 </style>
 
 {% endblock %}

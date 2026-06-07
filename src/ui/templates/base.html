@@ -6,16 +6,25 @@
   <title>{% block title %}STEWARD{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Sans:opsz,wght@9..40,600;9..40,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% block extra_head %}{% endblock %}
 </head>
 <body>
 
   <!-- Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-brand">
-      <div class="brand-name">🏠 STEWARD</div>
-      <div class="brand-tag">Personal Document Vault</div>
+      <div class="brand-mark">
+        <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9 1.5C9 1.5 3 4.5 3 9.75C3 13.5 5.8 16.5 9 16.5C12.2 16.5 15 13.5 15 9.75C15 4.5 9 1.5 9 1.5Z" fill="white" opacity="0.9"/>
+          <path d="M6.5 9C6.5 7.62 7.62 6.5 9 6.5C10.38 6.5 11.5 7.62 11.5 9C11.5 10.38 10.38 11.5 9 11.5C7.62 11.5 6.5 10.38 6.5 9Z" fill="#F97316"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <div class="brand-name">STEWARD</div>
+        <div class="brand-tag">Personal Vault</div>
+      </div>
     </div>
 
     <nav class="sidebar-nav">

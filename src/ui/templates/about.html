@@ -1,39 +1,263 @@
 {% extends "base.html" %}
 {% block title %}About · STEWARD{% endblock %}
 {% block page_title %}About STEWARD{% endblock %}
-{% block page_subtitle %}How it works and why it's built this way{% endblock %}
+{% block page_subtitle %}A personal document vault that actually thinks{% endblock %}
 
 {% block content %}
-<div class="about-grid">
-  <div class="about-card">
-    <h3>📋 What it does</h3>
-    <p>STEWARD is your personal document vault. Upload any document — warranty cards, AMC receipts, legal deeds, service records — and it extracts the key information automatically.</p>
-    <p style="margin-top:0.75rem">Ask plain-English questions about your documents. Get reminded via WhatsApp before things expire (coming in MVP 3).</p>
-  </div>
 
-  <div class="about-card">
-    <h3>🔒 Privacy</h3>
-    <p>Your document files stay on your machine. Only the text content is sent to the Anthropic API during processing — and that's deleted from their servers within 7 days.</p>
-    <p style="margin-top:0.75rem">Never used for AI training. <a href="https://privacy.claude.com" target="_blank">Anthropic privacy policy →</a></p>
-  </div>
-
-  <div class="about-card">
-    <h3>🛠 Tech stack</h3>
-    <ul>
-      <li>Python · Flask · SQLite</li>
-      <li>Claude API (Anthropic Haiku / Sonnet)</li>
-      <li>PyMuPDF · python-docx</li>
-      <li>Runs entirely on your laptop</li>
-    </ul>
-  </div>
-
-  <div class="about-card">
-    <h3>🗺 Roadmap</h3>
-    <ul>
-      <li>✅ MVP 1 — Upload & extract metadata</li>
-      <li>✅ MVP 2 — Ask questions about documents</li>
-      <li>🔲 MVP 3 — WhatsApp alerts for due dates</li>
-    </ul>
+<!-- ── The Problem ── -->
+<div class="about-section">
+  <div class="about-section-label">The Problem</div>
+  <div class="about-hero-card">
+    <p class="about-hero-text">
+      You have a flat. A car. A water purifier. An insurance policy. An AMC for your AC. A
+      warranty for the fridge. Receipts. Property papers. Legal deeds.
+    </p>
+    <p class="about-hero-text" style="margin-top:0.75rem">
+      They're scattered across email, WhatsApp, a physical drawer, and a Downloads folder.
+      You only remember they exist when something breaks — or expires.
+    </p>
+    <p class="about-hero-text" style="margin-top:0.75rem; color: var(--accent); font-weight: 600">
+      STEWARD fixes this.
+    </p>
   </div>
 </div>
+
+<!-- ── What It Does ── -->
+<div class="about-section">
+  <div class="about-section-label">What It Does</div>
+  <div class="feature-grid">
+
+    <div class="feature-card">
+      <div class="feature-icon">📄→🧠</div>
+      <div class="feature-title">Reads any document</div>
+      <p>Upload a PDF, DOCX, or paste text. STEWARD parses it — including scanned/image-based PDFs using Claude's vision model. It extracts the item name, document type, purchase date, next due date, tags, and notes automatically.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">📧</div>
+      <div class="feature-title">Email to ingest</div>
+      <p>Configure your Gmail address once. Then forward any document directly — no app needed. STEWARD polls your inbox every few minutes, downloads attachments, and processes them in the background.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">💬</div>
+      <div class="feature-title">Ask anything</div>
+      <p>Multi-turn conversation with your vault. Ask "What's my property survey number?" or "Which warranties expire this year?" — STEWARD reads the actual documents and answers in plain English, citing which file it used.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">📂</div>
+      <div class="feature-title">Organised automatically</div>
+      <p>Documents are grouped by type — AMC, Warranty, Legal, Insurance, Receipt. Instant search across names, types, tags, and dates. Filter by type with one click. Mark documents done when resolved.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">⚠️→✓</div>
+      <div class="feature-title">Overdue tracking</div>
+      <p>STEWARD flags documents past their due date in red — bike service overdue, AMC renewal missed, insurance expiry approaching. Mark them done once resolved. The due date strikes through.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">↺</div>
+      <div class="feature-title">Re-ingest at higher quality</div>
+      <p>Got a bad extraction on a scanned document? Hit Re-ingest from the Documents page or mid-conversation in Ask. It re-runs at 150 DPI with Claude Sonnet vision — far better results for low-quality scans.</p>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── How It Works ── -->
+<div class="about-section">
+  <div class="about-section-label">How It Works</div>
+  <div class="how-steps">
+    <div class="how-step">
+      <div class="how-step-num">1</div>
+      <div class="how-step-body">
+        <div class="how-step-title">Drop a document</div>
+        <p>Upload via the web UI, drag and drop multiple files, or email an attachment to your configured Gmail address.</p>
+      </div>
+    </div>
+    <div class="how-connector">↓</div>
+    <div class="how-step">
+      <div class="how-step-num">2</div>
+      <div class="how-step-body">
+        <div class="how-step-title">STEWARD parses and extracts</div>
+        <p>PyMuPDF reads text PDFs directly. Scanned pages are rendered as images and sent to Claude Sonnet for OCR-quality extraction. DOCX and plain text are handled natively.</p>
+      </div>
+    </div>
+    <div class="how-connector">↓</div>
+    <div class="how-step">
+      <div class="how-step-num">3</div>
+      <div class="how-step-body">
+        <div class="how-step-title">Metadata card saved locally</div>
+        <p>A structured record lands in your local SQLite database — item, type, dates, tags, notes — all searchable instantly. The original file stays on your disk, untouched.</p>
+      </div>
+    </div>
+    <div class="how-connector">↓</div>
+    <div class="how-step">
+      <div class="how-step-num">4</div>
+      <div class="how-step-body">
+        <div class="how-step-title">Ask, browse, act</div>
+        <p>Chat with your vault in plain English. Search and filter by type. Open the original file in one click. Mark things done. Re-ingest if an extraction was off.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Privacy ── -->
+<div class="about-section">
+  <div class="about-section-label">Privacy</div>
+  <div class="privacy-card">
+    <div class="privacy-row">
+      <div class="privacy-item">
+        <div class="privacy-icon">🖥</div>
+        <div class="privacy-title">Files never leave your machine</div>
+        <p>STEWARD stores documents in a local folder. The database is a single file on your disk. Nothing is uploaded to any cloud storage.</p>
+      </div>
+      <div class="privacy-item">
+        <div class="privacy-icon">🔒</div>
+        <div class="privacy-title">API calls are transient</div>
+        <p>Only document text (not the file itself) is sent to the Anthropic API during processing. Anthropic deletes this within 7 days and never uses it for model training.</p>
+      </div>
+      <div class="privacy-item">
+        <div class="privacy-icon">✋</div>
+        <div class="privacy-title">You control the key</div>
+        <p>Your Anthropic API key lives in a <code>.env</code> file on your machine. STEWARD never transmits it or logs it anywhere.</p>
+      </div>
+    </div>
+    <div class="privacy-link">
+      <a href="https://privacy.claude.com" target="_blank" rel="noopener">Anthropic privacy policy →</a>
+    </div>
+  </div>
+</div>
+
+<!-- ── Roadmap ── -->
+<div class="about-section">
+  <div class="about-section-label">Roadmap</div>
+  <div class="roadmap-list">
+    <div class="roadmap-item done">
+      <span class="roadmap-dot">✓</span>
+      <div>
+        <div class="roadmap-title">MVP 1 — Ingest & Extract</div>
+        <p>Upload documents · Claude extracts metadata · SQLite storage · SHA-256 deduplication · text and scanned PDF support · background processing with progress tracking</p>
+      </div>
+    </div>
+    <div class="roadmap-item done">
+      <span class="roadmap-dot">✓</span>
+      <div>
+        <div class="roadmap-title">MVP 2 — Ask Anything</div>
+        <p>Multi-turn chat with vault · full document context sent to Sonnet · cited answers · search + filter + grouping · overdue tracking · re-ingest with higher quality · token + file size tracking</p>
+      </div>
+    </div>
+    <div class="roadmap-item done">
+      <span class="roadmap-dot">✓</span>
+      <div>
+        <div class="roadmap-title">MVP 2.5 — Email Ingest</div>
+        <p>Gmail IMAP polling via APScheduler · forward any PDF to your configured address · auto-processed in the background · no app interaction needed</p>
+      </div>
+    </div>
+    <div class="roadmap-item next">
+      <span class="roadmap-dot">→</span>
+      <div>
+        <div class="roadmap-title">MVP 3 — Proactive Alerts</div>
+        <p>WhatsApp notifications via Twilio · daily scheduler checks for upcoming due dates · "Your bike service is due in 12 days" delivered to your phone</p>
+      </div>
+    </div>
+    <div class="roadmap-item future">
+      <span class="roadmap-dot">○</span>
+      <div>
+        <div class="roadmap-title">Future — Mobile & Cloud</div>
+        <p>VPS deployment for remote access · mobile-optimised UI · family vault with per-user docs</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.about-section { margin-bottom: 2.5rem; }
+.about-section-label {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-3); margin-bottom: 0.875rem;
+}
+
+/* Hero */
+.about-hero-card {
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius); padding: 1.5rem; box-shadow: var(--shadow);
+}
+.about-hero-text { font-size: 1rem; color: var(--text); line-height: 1.8; }
+
+/* Feature grid */
+.feature-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;
+}
+@media (max-width: 900px) { .feature-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .feature-grid { grid-template-columns: 1fr; } }
+
+.feature-card {
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow);
+  transition: border-color .15s;
+}
+.feature-card:hover { border-color: var(--accent); }
+.feature-icon { font-size: 1.4rem; margin-bottom: 0.5rem; }
+.feature-title { font-size: 0.9rem; font-weight: 700; color: var(--text); margin-bottom: 0.5rem; }
+.feature-card p { font-size: 0.82rem; color: var(--text); line-height: 1.65; }
+
+/* How steps */
+.how-steps { display: flex; flex-direction: column; align-items: stretch; }
+.how-step {
+  display: flex; align-items: flex-start; gap: 1rem;
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow);
+}
+.how-step-num {
+  width: 2rem; height: 2rem; border-radius: 50%; flex-shrink: 0;
+  background: var(--accent); color: white; font-weight: 700; font-size: 0.9rem;
+  display: flex; align-items: center; justify-content: center; margin-top: 0.1rem;
+}
+.how-step-title { font-weight: 700; font-size: 0.9rem; color: var(--text); margin-bottom: 0.35rem; }
+.how-step-body p { font-size: 0.83rem; color: var(--text); line-height: 1.65; }
+.how-connector { text-align: center; color: var(--text-3); padding: 0.35rem 0; font-size: 1.2rem; }
+
+/* Privacy */
+.privacy-card {
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius); padding: 1.5rem; box-shadow: var(--shadow);
+}
+.privacy-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; }
+@media (max-width: 700px) { .privacy-row { grid-template-columns: 1fr; } }
+.privacy-item { }
+.privacy-icon { font-size: 1.5rem; margin-bottom: 0.5rem; }
+.privacy-title { font-size: 0.88rem; font-weight: 700; color: var(--text); margin-bottom: 0.4rem; }
+.privacy-item p { font-size: 0.82rem; color: var(--text); line-height: 1.65; }
+.privacy-link { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.82rem; }
+.privacy-link a { color: var(--accent); text-decoration: none; }
+.privacy-link a:hover { text-decoration: underline; }
+
+/* Roadmap */
+.roadmap-list { display: flex; flex-direction: column; gap: 0.75rem; }
+.roadmap-item {
+  display: flex; gap: 1rem; align-items: flex-start;
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius); padding: 1rem 1.25rem; box-shadow: var(--shadow);
+}
+.roadmap-item.done  { border-color: #86efac; background: #f0fdf4; }
+.roadmap-item.next  { border-color: #93c5fd; background: #eff6ff; }
+.roadmap-item.future { opacity: 0.6; }
+
+.roadmap-dot {
+  width: 1.6rem; height: 1.6rem; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.75rem; font-weight: 700;
+}
+.done  .roadmap-dot { background: #22c55e; color: white; }
+.next  .roadmap-dot { background: #3b82f6; color: white; }
+.future .roadmap-dot { background: var(--surface-2); border: 2px solid var(--border); color: var(--text-3); font-size: 0.6rem; }
+
+.roadmap-title { font-weight: 700; font-size: 0.9rem; color: var(--text); margin-bottom: 0.3rem; }
+.roadmap-item p { font-size: 0.82rem; color: var(--text); line-height: 1.65; }
+</style>
+
 {% endblock %}

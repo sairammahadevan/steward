@@ -4,31 +4,41 @@
 {% block page_subtitle %}Your document vault at a glance{% endblock %}
 
 {% block topbar_actions %}
-<a href="{{ url_for('ingest') }}" class="btn btn-primary">+ Upload Document</a>
+<a href="{{ url_for('ingest') }}" class="btn btn-primary">+ Upload</a>
 {% endblock %}
 
 {% block content %}
 
 <!-- Stats row -->
 <div class="stats-row">
-  <div class="stat-card">
-    <div class="stat-label">Total Documents</div>
+  <div class="stat-card stat-card-indigo">
+    <div class="stat-label">Documents</div>
     <div class="stat-value">{{ doc_count }}</div>
     <div class="stat-sub">in your vault</div>
   </div>
-  <div class="stat-card">
-    <div class="stat-label">Due in 30 Days</div>
-    <div class="stat-value" style="color: {% if upcoming %}var(--urgent){% else %}var(--success){% endif %}">
+  <div class="stat-card {% if upcoming %}stat-card-amber{% else %}stat-card-green{% endif %}">
+    <div class="stat-label">Due in 30 days</div>
+    <div class="stat-value" style="color: {% if upcoming %}var(--warning){% else %}var(--success){% endif %}">
       {{ upcoming | length }}
     </div>
     <div class="stat-sub">{% if upcoming %}needs attention{% else %}all clear{% endif %}</div>
   </div>
+  {% if email_configured %}
+  <div class="stat-card stat-card-blue">
+    <div class="stat-label">Email ingest</div>
+    <div class="stat-value" style="font-size:1.1rem; margin-top:8px; margin-bottom:6px; color:var(--success)">Active</div>
+    <div class="stat-sub">polls every {{ settings.email_poll_minutes if settings else 5 }} min</div>
+  </div>
+  {% endif %}
 </div>
 
-<!-- Upcoming -->
+<!-- Upcoming due dates -->
 <div class="section">
   <div class="section-header">
     <div class="section-title">⏰ Upcoming Due Dates</div>
+    {% if upcoming %}
+    <a href="{{ url_for('documents') }}" class="btn btn-secondary btn-sm">View all →</a>
+    {% endif %}
   </div>
 
   {% if upcoming %}
@@ -44,7 +54,6 @@
       </thead>
       <tbody>
         {% for doc in upcoming %}
-        {% set today = now %}
         <tr>
           <td><strong>{{ doc.item or doc.filename }}</strong></td>
           <td>
@@ -52,10 +61,8 @@
               {{ doc.type or 'Other' }}
             </span>
           </td>
-          <td>{{ doc.next_due_date }}</td>
-          <td>
-            <span class="days-chip">Due soon</span>
-          </td>
+          <td style="color:var(--text-2)">{{ doc.next_due_date }}</td>
+          <td><span class="days-chip">Due soon</span></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -64,7 +71,7 @@
   {% else %}
   <div class="empty-state">
     <div class="empty-icon">✅</div>
-    <p>Nothing due in the next 30 days. You're on top of things.</p>
+    <p>Nothing due in the next 30 days — you're on top of things.</p>
     <a href="{{ url_for('ingest') }}" class="btn btn-secondary">Upload a document</a>
   </div>
   {% endif %}
