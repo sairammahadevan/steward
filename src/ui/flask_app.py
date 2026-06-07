@@ -355,6 +355,34 @@ def architecture():
     return render_template("architecture.html")
 
 
+@app.route("/health")
+def health():
+    """HELM health endpoint — returns JSON status for the control plane."""
+    from src.database import get_db
+    try:
+        conn = get_db()
+        doc_count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        active_count = conn.execute("SELECT COUNT(*) FROM documents WHERE status='active'").fetchone()[0]
+        conn.close()
+        db_ok = True
+    except Exception:
+        doc_count = active_count = 0
+        db_ok = False
+
+    pending_jobs = len([j for j in tracker.get_all_statuses().values()
+                        if j.get("status") in ("queued", "processing")])
+
+    return jsonify({
+        "status": "running",
+        "service": "steward",
+        "version": "0.1.0",
+        "db": "ok" if db_ok else "error",
+        "documents": doc_count,
+        "active_documents": active_count,
+        "pending_jobs": pending_jobs,
+    })
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
