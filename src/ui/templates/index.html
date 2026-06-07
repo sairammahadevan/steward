@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · STEWARD{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block page_subtitle %}Your document vault at a glance{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('ingest') }}" class="btn btn-primary">+ Upload Document</a>
+{% endblock %}
+
+{% block content %}
+
+<!-- Stats row -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-label">Total Documents</div>
+    <div class="stat-value">{{ doc_count }}</div>
+    <div class="stat-sub">in your vault</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Due in 30 Days</div>
+    <div class="stat-value" style="color: {% if upcoming %}var(--urgent){% else %}var(--success){% endif %}">
+      {{ upcoming | length }}
+    </div>
+    <div class="stat-sub">{% if upcoming %}needs attention{% else %}all clear{% endif %}</div>
+  </div>
+</div>
+
+<!-- Upcoming -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-title">⏰ Upcoming Due Dates</div>
+  </div>
+
+  {% if upcoming %}
+  <div class="due-table">
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Type</th>
+          <th>Due Date</th>
+          <th>Days Left</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for doc in upcoming %}
+        {% set today = now %}
+        <tr>
+          <td><strong>{{ doc.item or doc.filename }}</strong></td>
+          <td>
+            <span class="doc-type-badge type-{{ (doc.type or 'other')|lower }}">
+              {{ doc.type or 'Other' }}
+            </span>
+          </td>
+          <td>{{ doc.next_due_date }}</td>
+          <td>
+            <span class="days-chip">Due soon</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">✅</div>
+    <p>Nothing due in the next 30 days. You're on top of things.</p>
+    <a href="{{ url_for('ingest') }}" class="btn btn-secondary">Upload a document</a>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

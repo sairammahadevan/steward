@@ -1,0 +1,42 @@
+# Environment — NEVER commit API keys or email passwords
+.env
+
+# Database — user's personal documents, stays local
+steward.db
+steward.db-shm
+steward.db-wal
+
+# Document storage — user's personal files, stays local
+docs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+pytest-cache-files-*/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log

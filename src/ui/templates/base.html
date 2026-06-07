@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}STEWARD{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-name">🏠 STEWARD</div>
+      <div class="brand-tag">Personal Document Vault</div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="{{ url_for('index') }}"     class="nav-item {% if request.endpoint == 'index' %}active{% endif %}">
+        <span class="nav-icon">📊</span> Dashboard
+      </a>
+      <a href="{{ url_for('ingest') }}"    class="nav-item {% if request.endpoint == 'ingest' %}active{% endif %}">
+        <span class="nav-icon">📤</span> Upload
+        {% if active_uploads > 0 %}
+        <span class="upload-badge">{{ active_uploads }}</span>
+        {% endif %}
+      </a>
+      <a href="{{ url_for('documents') }}" class="nav-item {% if request.endpoint == 'documents' %}active{% endif %}">
+        <span class="nav-icon">📂</span> Documents
+      </a>
+      <a href="{{ url_for('ask') }}"       class="nav-item {% if request.endpoint == 'ask' %}active{% endif %}">
+        <span class="nav-icon">💬</span> Ask
+      </a>
+      <a href="{{ url_for('architecture') }}" class="nav-item {% if request.endpoint == 'architecture' %}active{% endif %}">
+        <span class="nav-icon">🏛️</span> Architecture
+      </a>
+      <a href="{{ url_for('about') }}"     class="nav-item {% if request.endpoint == 'about' %}active{% endif %}">
+        <span class="nav-icon">ℹ️</span> About
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="doc-count-badge">
+        <span>Documents</span>
+        <span class="count">{{ doc_count }}</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <div class="main-wrap">
+    <header class="topbar">
+      <div>
+        <div class="topbar-title">{% block page_title %}STEWARD{% endblock %}</div>
+        <div class="topbar-subtitle">{% block page_subtitle %}{% endblock %}</div>
+      </div>
+      {% block topbar_actions %}{% endblock %}
+    </header>
+
+    {% if boot_error %}
+    <div class="alerts">
+      <div class="alert alert-error">⚠️ {{ boot_error }}</div>
+    </div>
+    {% endif %}
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="alerts">
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
+
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer>STEWARD · your documents, your machine · data never leaves without your permission</footer>
+  </div>
+
+</body>
+</html>

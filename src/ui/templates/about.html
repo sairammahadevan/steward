@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}About · STEWARD{% endblock %}
+{% block page_title %}About STEWARD{% endblock %}
+{% block page_subtitle %}How it works and why it's built this way{% endblock %}
+
+{% block content %}
+<div class="about-grid">
+  <div class="about-card">
+    <h3>📋 What it does</h3>
+    <p>STEWARD is your personal document vault. Upload any document — warranty cards, AMC receipts, legal deeds, service records — and it extracts the key information automatically.</p>
+    <p style="margin-top:0.75rem">Ask plain-English questions about your documents. Get reminded via WhatsApp before things expire (coming in MVP 3).</p>
+  </div>
+
+  <div class="about-card">
+    <h3>🔒 Privacy</h3>
+    <p>Your document files stay on your machine. Only the text content is sent to the Anthropic API during processing — and that's deleted from their servers within 7 days.</p>
+    <p style="margin-top:0.75rem">Never used for AI training. <a href="https://privacy.claude.com" target="_blank">Anthropic privacy policy →</a></p>
+  </div>
+
+  <div class="about-card">
+    <h3>🛠 Tech stack</h3>
+    <ul>
+      <li>Python · Flask · SQLite</li>
+      <li>Claude API (Anthropic Haiku / Sonnet)</li>
+      <li>PyMuPDF · python-docx</li>
+      <li>Runs entirely on your laptop</li>
+    </ul>
+  </div>
+
+  <div class="about-card">
+    <h3>🗺 Roadmap</h3>
+    <ul>
+      <li>✅ MVP 1 — Upload & extract metadata</li>
+      <li>✅ MVP 2 — Ask questions about documents</li>
+      <li>🔲 MVP 3 — WhatsApp alerts for due dates</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}

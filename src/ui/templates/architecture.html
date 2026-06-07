@@ -1,0 +1,677 @@
+{% extends "base.html" %}
+{% block title %}Architecture · STEWARD{% endblock %}
+{% block page_title %}Architecture{% endblock %}
+{% block page_subtitle %}System design, agent swarm model, and engineering decisions{% endblock %}
+
+{% block content %}
+
+<!-- ── Overview ── -->
+<div class="arch-section">
+  <div class="arch-label">Overview</div>
+  <div class="arch-card">
+    <p class="arch-intro">
+      STEWARD is a <strong>personal home document management system</strong> built on a
+      privacy-first, local-first architecture. It ingests documents of any type, extracts
+      structured metadata using a cloud LLM (Anthropic Claude), stores everything locally
+      in SQLite, and surfaces time-sensitive reminders proactively via WhatsApp.
+    </p>
+    <p class="arch-intro" style="margin-top:0.75rem">
+      The system is designed around a <strong>swarm of specialised agents</strong> — each
+      owning a distinct domain — following a phased MVP delivery model with explicit QA
+      gate reviews between each phase.
+    </p>
+  </div>
+</div>
+
+<!-- ── System Architecture Diagram ── -->
+<div class="arch-section">
+  <div class="arch-label">System Architecture</div>
+
+  <div class="sysdia">
+
+    <!-- ════ LEFT: YOUR MACHINE ════ -->
+    <div class="sysdia-local">
+      <div class="sysdia-zone-title">🖥 YOUR MACHINE — files never leave this boundary</div>
+
+      <!-- Two flows side-by-side -->
+      <div class="sysdia-flows">
+
+        <!-- Ingestion flow -->
+        <div class="sysdia-flow">
+          <div class="sysdia-flow-label">① Ingestion pipeline</div>
+
+          <div class="sysdia-box">
+            <div class="sysdia-box-icon">📄</div>
+            <div>
+              <div class="sysdia-box-title">Any Document</div>
+              <div class="sysdia-box-sub">PDF · DOCX · TXT · MD · text paste</div>
+              <div class="sysdia-box-sub">Max 50 MB · multi-file upload</div>
+              <div class="sysdia-chip">SHA-256 computed → deduplicated before API call</div>
+            </div>
+          </div>
+
+          <div class="sysdia-arrow-v">↓</div>
+
+          <div class="sysdia-box">
+            <div class="sysdia-box-icon">🔍</div>
+            <div>
+              <div class="sysdia-box-title">Doc Parser <span class="sysdia-lib">PyMuPDF · python-docx</span></div>
+              <div class="sysdia-box-sub"><strong>Type detection:</strong> text PDF · scanned PDF · DOCX · plain text</div>
+              <div class="sysdia-box-sub">Rule: &lt;50 chars/page → classified as <em>scanned</em></div>
+              <div class="sysdia-box-sub">Scanned pages rendered to PNG at 150 dpi → sent as vision input</div>
+              <div class="sysdia-chip">Handles mixed PDFs: text pages as text, scanned pages as images</div>
+            </div>
+          </div>
+
+          <div class="sysdia-arrow-v">↓</div>
+
+          <div class="sysdia-box sysdia-box--api">
+            <div class="sysdia-box-icon">⚙️</div>
+            <div>
+              <div class="sysdia-box-title">Extractor</div>
+              <div class="sysdia-box-sub">Sends text or PNG images → Claude Haiku</div>
+              <div class="sysdia-box-sub">Prompts for structured JSON — null if not confident</div>
+              <div class="sysdia-box-sub">Strips markdown fences · parses JSON response</div>
+              <div class="sysdia-chip">Output: item · type · purchase_date · next_due_date · tags · notes</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Vertical divider -->
+        <div class="sysdia-divider"></div>
+
+        <!-- Query flow -->
+        <div class="sysdia-flow">
+          <div class="sysdia-flow-label">② Query pipeline</div>
+
+          <div class="sysdia-box">
+            <div class="sysdia-box-icon">🌐</div>
+            <div>
+              <div class="sysdia-box-title">Flask Web UI <span class="sysdia-lib">Flask · Jinja2</span></div>
+              <div class="sysdia-box-sub">Dashboard · Upload · Documents · Ask · Architecture</div>
+              <div class="sysdia-box-sub">Single process · single port (5001) · no build pipeline</div>
+              <div class="sysdia-chip">Double-click launcher: STEWARD.command opens browser automatically</div>
+            </div>
+          </div>
+
+          <div class="sysdia-arrow-v">↓</div>
+
+          <div class="sysdia-box sysdia-box--api">
+            <div class="sysdia-box-icon">💬</div>
+            <div>
+              <div class="sysdia-box-title">Query Engine</div>
+              <div class="sysdia-box-sub"><strong>Step 1 — retrieve:</strong> keyword match against item, type, tags, notes, filename in SQLite</div>
+              <div class="sysdia-box-sub"><strong>Step 2 — read:</strong> loads full document text from disk</div>
+              <div class="sysdia-box-sub"><strong>Step 3 — answer:</strong> sends doc + question → Claude Sonnet</div>
+              <div class="sysdia-chip">No chunking · no embeddings · Claude reads the whole document in-context</div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /sysdia-flows -->
+
+      <!-- SQLite — spans full width -->
+      <div class="sysdia-arrow-v">↓ &nbsp;&nbsp; ↓</div>
+      <div class="sysdia-db">
+        <div class="sysdia-box-icon">🗄️</div>
+        <div>
+          <div class="sysdia-box-title">SQLite Database — steward.db <span class="sysdia-lib">zero-ops · single file · built into Python</span></div>
+          <div class="sysdia-box-sub"><strong>Schema:</strong> id · sha256 (UNIQUE) · filename · doc_path · doc_type · item · type · purchase_date · next_due_date · notes · tags · created_at</div>
+          <div class="sysdia-box-sub"><strong>Design choice:</strong> structured metadata cards — no vector index, no embeddings, no separate server</div>
+          <div class="sysdia-box-note">Files stay on disk at ~/Documents/steward/ · DB stores the path, not the bytes · SHA-256 prevents re-ingestion of duplicates</div>
+        </div>
+      </div>
+
+      <!-- Scheduler -->
+      <div class="sysdia-arrow-v">↓</div>
+      <div class="sysdia-scheduler">
+        <div class="sysdia-box-icon">⏰</div>
+        <div>
+          <div class="sysdia-box-title">Scheduler <span class="sysdia-lib">APScheduler</span> <span class="sysdia-badge">MVP 3</span></div>
+          <div class="sysdia-box-sub">Runs daily as background thread · no separate process · queries SQLite for <code>next_due_date</code> within 30-day window · triggers Twilio →</div>
+        </div>
+      </div>
+
+    </div><!-- /sysdia-local -->
+
+    <!-- ════ RIGHT: EXTERNAL ════ -->
+    <div class="sysdia-external">
+
+      <!-- Anthropic zone -->
+      <div class="sysdia-api-zone sysdia-api-zone--purple">
+        <div class="sysdia-zone-title sysdia-zone-title--purple">ANTHROPIC API</div>
+
+        <div class="sysdia-box sysdia-box--purple">
+          <div class="sysdia-box-icon">🤖</div>
+          <div>
+            <div class="sysdia-box-title">Claude Haiku</div>
+            <div class="sysdia-box-sub"><code>claude-haiku-4-5</code></div>
+            <div class="sysdia-box-sub">Ingestion: structured JSON extraction</div>
+            <div class="sysdia-box-sub">Handles text + vision (scanned PDFs)</div>
+            <div class="sysdia-box-sub">Retry: 3× with 4 s exponential backoff</div>
+          </div>
+        </div>
+
+        <div class="sysdia-api-spacer"></div>
+
+        <div class="sysdia-box sysdia-box--purple">
+          <div class="sysdia-box-icon">🤖</div>
+          <div>
+            <div class="sysdia-box-title">Claude Sonnet</div>
+            <div class="sysdia-box-sub"><code>claude-sonnet-4-6</code></div>
+            <div class="sysdia-box-sub">Query: reads full doc + answers in plain English</div>
+            <div class="sysdia-box-sub">Returns answer with document citation</div>
+            <div class="sysdia-box-sub">Large context window — no chunking needed</div>
+          </div>
+        </div>
+
+        <div class="sysdia-privacy">
+          🔒 Only text transits API · deleted ≤ 7 days · never used for model training · actual files stay on your machine
+        </div>
+      </div>
+
+      <!-- Twilio zone -->
+      <div class="sysdia-api-zone sysdia-api-zone--green">
+        <div class="sysdia-zone-title sysdia-zone-title--green">TWILIO / WHATSAPP <span class="sysdia-badge">MVP 3</span></div>
+
+        <div class="sysdia-box sysdia-box--green">
+          <div class="sysdia-box-icon">📱</div>
+          <div>
+            <div class="sysdia-box-title">WhatsApp Alert</div>
+            <div class="sysdia-box-sub">Delivered to your phone — no app open needed</div>
+            <div class="sysdia-box-sub"><em>"Bike service due in 12 days"</em></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /sysdia-external -->
+  </div><!-- /sysdia -->
+
+  <!-- Legend -->
+  <div class="sysdia-legend">
+    <span class="legend-item legend-local">■ Stays on your machine</span>
+    <span class="legend-item legend-api">■ Transits Anthropic API (transient, deleted ≤7d)</span>
+    <span class="legend-item legend-mvp3">■ MVP 3 — coming soon</span>
+  </div>
+</div>
+
+<!-- ── Swarm Agent Architecture ── -->
+<div class="arch-section">
+  <div class="arch-label">Swarm Agent Architecture</div>
+  <p class="arch-intro" style="margin-bottom:1.25rem">
+    STEWARD is built by a <strong>swarm of 5 specialised agents</strong>, each with clearly
+    defined file ownership and responsibilities. No agent touches another agent's domain.
+    This pattern enables parallel development, clear accountability, and meaningful QA
+    gate reviews between each MVP.
+  </p>
+
+  <div class="agent-grid">
+    <div class="agent-card">
+      <div class="agent-header">
+        <span class="agent-icon">🎯</span>
+        <div>
+          <div class="agent-name">Product Owner</div>
+          <div class="agent-owns">Owns: <code>.swarm/board/</code></div>
+        </div>
+      </div>
+      <p>Represents user needs. Maintains the backlog and sprint board. Makes MVP gate decisions
+      based on QA reviews. Ruthlessly cuts scope when phases grow beyond definition.</p>
+      <div class="agent-principle">Principle: "Would Sairam actually use this daily?"</div>
+    </div>
+
+    <div class="agent-card">
+      <div class="agent-header">
+        <span class="agent-icon">🏛️</span>
+        <div>
+          <div class="agent-name">Architect</div>
+          <div class="agent-owns">Owns: <code>.swarm/architecture/</code> · <code>pyproject.toml</code></div>
+        </div>
+      </div>
+      <p>Owns system design and cross-cutting concerns. Writes Architecture Decision Records
+      (ADRs) to document every significant technology choice with explicit tradeoffs. Guards
+      against over-engineering.</p>
+      <div class="agent-principle">Principle: "Can I remove this and still solve the problem?"</div>
+    </div>
+
+    <div class="agent-card">
+      <div class="agent-header">
+        <span class="agent-icon">⚙️</span>
+        <div>
+          <div class="agent-name">Backend Developer</div>
+          <div class="agent-owns">Owns: <code>src/</code> (non-UI)</div>
+        </div>
+      </div>
+      <p>Owns all Python logic — Claude client, document parser, metadata extractor, SQLite
+      layer, query engine, scheduler, and alerter. Every module is independently testable
+      with typed interfaces.</p>
+      <div class="agent-principle">Principle: "Logging and error handling are not optional."</div>
+    </div>
+
+    <div class="agent-card">
+      <div class="agent-header">
+        <span class="agent-icon">🎨</span>
+        <div>
+          <div class="agent-name">Frontend Developer</div>
+          <div class="agent-owns">Owns: <code>src/ui/</code></div>
+        </div>
+      </div>
+      <p>Owns the Flask UI — routes, Jinja2 templates, and CSS. Calls backend functions cleanly
+      with no business logic in the UI layer. Responsible for loading states, error handling,
+      and making the system feel effortless.</p>
+      <div class="agent-principle">Principle: "If you have to think about how to use a page, it's too complicated."</div>
+    </div>
+
+    <div class="agent-card">
+      <div class="agent-header">
+        <span class="agent-icon">🔍</span>
+        <div>
+          <div class="agent-name">QA Agent</div>
+          <div class="agent-owns">Owns: <code>tests/</code> · <code>.swarm/reviews/</code></div>
+        </div>
+      </div>
+      <p>Reads everything, writes all tests, produces the gate review that determines whether
+      an MVP can proceed. Checks every acceptance criterion. Never implements fixes — only
+      reports issues for the relevant agent to address.</p>
+      <div class="agent-principle">Principle: "A false PASS is worse than a FAIL."</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── ADR Summary ── -->
+<div class="arch-section">
+  <div class="arch-label">Architecture Decision Records</div>
+  <p class="arch-intro" style="margin-bottom:1.25rem">
+    Every significant technology choice is documented as an ADR — capturing the context,
+    the decision, and the explicit tradeoffs accepted. These live in <code>.swarm/architecture/</code>.
+  </p>
+
+  <div class="adr-list">
+    <div class="adr-card">
+      <div class="adr-id">ADR-001</div>
+      <div class="adr-title">Claude API over local LLMs</div>
+      <div class="adr-body">
+        <strong>Context:</strong> Previous attempt used Ollama + Gemma 3B on an M3 8GB MacBook.
+        The machine ran out of memory, crashed during inference, and 3B models produced unreliable
+        extraction from legal documents and scanned images.<br><br>
+        <strong>Decision:</strong> Use Anthropic Claude API. Haiku for ingestion (fast, cheap),
+        Sonnet for query answering (better reasoning).<br><br>
+        <strong>Tradeoff accepted:</strong> Document text transits Anthropic servers during API calls.
+        Mitigated by: 7-day deletion policy, no training use, actual files stay local.
+      </div>
+    </div>
+
+    <div class="adr-card">
+      <div class="adr-id">ADR-002</div>
+      <div class="adr-title">SQLite over vector database</div>
+      <div class="adr-body">
+        <strong>Context:</strong> Previous attempt used Qdrant vector DB, requiring a separate
+        server process, embedding pipelines, and chunking strategy decisions — all of which
+        contributed to the project stalling.<br><br>
+        <strong>Decision:</strong> SQLite with structured metadata cards. One row per document.
+        Keyword matching for retrieval. Claude handles the full document in-context.<br><br>
+        <strong>Tradeoff accepted:</strong> No semantic/fuzzy search across content. Acceptable at
+        personal document scale (50–200 documents). Vector search can be added if collection grows.
+      </div>
+    </div>
+
+    <div class="adr-card">
+      <div class="adr-id">ADR-003</div>
+      <div class="adr-title">Flask over Streamlit or FastAPI</div>
+      <div class="adr-body">
+        <strong>Context:</strong> Streamlit's execution model caused state management issues.
+        FastAPI + separate Streamlit frontend added operational complexity for a personal tool.<br><br>
+        <strong>Decision:</strong> Flask with Jinja2 templates. Single process, single port,
+        one command to run. No JavaScript build pipeline.<br><br>
+        <strong>Tradeoff accepted:</strong> Full page reloads on form submit. No real-time updates.
+        Acceptable for personal-use ingestion and query workflows.
+      </div>
+    </div>
+
+    <div class="adr-card">
+      <div class="adr-id">ADR-004</div>
+      <div class="adr-title">PyMuPDF for document parsing</div>
+      <div class="adr-body">
+        <strong>Context:</strong> STEWARD must handle text PDFs, scanned (image-based) PDFs,
+        and DOCX. The parser must detect document type and route correctly — text extraction
+        for text PDFs, image conversion for scanned pages.<br><br>
+        <strong>Decision:</strong> PyMuPDF for PDF parsing and image rendering. python-docx for
+        DOCX. Detection rule: &lt;50 characters per page = treat as scanned.<br><br>
+        <strong>Tradeoff accepted:</strong> AGPL licence (acceptable for personal use). Image
+        conversion increases token usage for scanned documents.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── MVP Progression ── -->
+<div class="arch-section">
+  <div class="arch-label">MVP Delivery Model</div>
+  <p class="arch-intro" style="margin-bottom:1.25rem">
+    Each MVP is gated — no code for the next phase begins until the current phase passes
+    QA review. This prevents over-building and ensures each increment is usable on its own.
+  </p>
+
+  <div class="mvp-timeline">
+    <div class="mvp-item mvp-done">
+      <div class="mvp-dot"></div>
+      <div class="mvp-content">
+        <div class="mvp-label">MVP 1 · Shipped</div>
+        <div class="mvp-title">Ingest & Extract</div>
+        <p>Upload any document → Claude extracts structured metadata card → stored in SQLite → visible in UI. SHA-256 deduplication. Text and scanned PDF support.</p>
+      </div>
+    </div>
+    <div class="mvp-item mvp-done">
+      <div class="mvp-dot"></div>
+      <div class="mvp-content">
+        <div class="mvp-label">MVP 2 · Shipped</div>
+        <div class="mvp-title">Ask Anything</div>
+        <p>Natural language questions answered from document vault. Keyword-based retrieval from SQLite, full document context sent to Claude Sonnet, cited answers returned.</p>
+      </div>
+    </div>
+    <div class="mvp-item mvp-next">
+      <div class="mvp-dot"></div>
+      <div class="mvp-content">
+        <div class="mvp-label">MVP 3 · Next</div>
+        <div class="mvp-title">Proactive Alerts</div>
+        <p>APScheduler runs daily, queries SQLite for items due within configurable window, sends WhatsApp message via Twilio API. No action required from user.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Tech Stack ── -->
+<div class="arch-section">
+  <div class="arch-label">Tech Stack</div>
+  <div class="stack-grid">
+    <div class="stack-item"><span class="stack-layer">Language</span><span class="stack-tech">Python 3.10+</span><span class="stack-why">Ecosystem, simplicity, Anthropic SDK support</span></div>
+    <div class="stack-item"><span class="stack-layer">LLM</span><span class="stack-tech">Anthropic Claude API</span><span class="stack-why">Quality, privacy policy, vision + text in one model</span></div>
+    <div class="stack-item"><span class="stack-layer">Database</span><span class="stack-tech">SQLite</span><span class="stack-why">Zero-ops, single file, built into Python</span></div>
+    <div class="stack-item"><span class="stack-layer">Web</span><span class="stack-tech">Flask + Jinja2</span><span class="stack-why">Simple, single process, no build pipeline</span></div>
+    <div class="stack-item"><span class="stack-layer">PDF parsing</span><span class="stack-tech">PyMuPDF</span><span class="stack-why">Text extraction + scanned page image rendering</span></div>
+    <div class="stack-item"><span class="stack-layer">DOCX</span><span class="stack-tech">python-docx</span><span class="stack-why">Table and paragraph extraction</span></div>
+    <div class="stack-item"><span class="stack-layer">Scheduler</span><span class="stack-tech">APScheduler (MVP 3)</span><span class="stack-why">Lightweight local scheduler, no separate process</span></div>
+    <div class="stack-item"><span class="stack-layer">Alerts</span><span class="stack-tech">Twilio (MVP 3)</span><span class="stack-why">WhatsApp delivery, reliable SDK</span></div>
+    <div class="stack-item"><span class="stack-layer">Testing</span><span class="stack-tech">pytest</span><span class="stack-why">42 tests across all modules</span></div>
+  </div>
+</div>
+
+<!-- Styles scoped to this page -->
+<style>
+.arch-section { margin-bottom: 2.5rem; }
+.arch-label {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-3); margin-bottom: 0.875rem;
+}
+.arch-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 1.5rem;
+}
+.arch-intro { font-size: 0.9rem; color: var(--text-2); line-height: 1.75; }
+
+/* Agents */
+.agent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 640px) { .agent-grid { grid-template-columns: 1fr; } }
+
+.agent-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow);
+}
+.agent-header { display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.75rem; }
+.agent-icon { font-size: 1.5rem; }
+.agent-name { font-weight: 700; font-size: 0.95rem; color: var(--text); }
+.agent-owns { font-size: 0.75rem; color: var(--text-3); margin-top: 0.1rem; }
+.agent-owns code { background: var(--surface-2); padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.7rem; }
+.agent-card p { font-size: 0.85rem; color: var(--text-2); line-height: 1.65; margin-bottom: 0.75rem; }
+.agent-principle {
+  font-size: 0.75rem; color: var(--accent); font-style: italic;
+  padding: 0.5rem 0.75rem; background: var(--accent-light);
+  border-radius: var(--radius-sm); border-left: 2px solid var(--accent);
+}
+
+/* ADRs */
+.adr-list { display: grid; gap: 1rem; }
+.adr-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.25rem 1.5rem; box-shadow: var(--shadow);
+  display: grid; grid-template-columns: 72px 200px 1fr; gap: 1rem; align-items: start;
+}
+@media (max-width: 640px) { .adr-card { grid-template-columns: 1fr; } }
+.adr-id {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--accent); padding-top: 0.15rem;
+}
+.adr-title { font-weight: 600; font-size: 0.9rem; color: var(--text); padding-top: 0.1rem; }
+.adr-body { font-size: 0.82rem; color: var(--text-2); line-height: 1.7; }
+
+/* MVP timeline */
+.mvp-timeline { display: flex; flex-direction: column; gap: 0; position: relative; }
+.mvp-timeline::before {
+  content: ''; position: absolute; left: 11px; top: 12px; bottom: 12px;
+  width: 2px; background: var(--border);
+}
+.mvp-item { display: flex; gap: 1.25rem; position: relative; padding-bottom: 1.5rem; }
+.mvp-item:last-child { padding-bottom: 0; }
+.mvp-dot {
+  width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+  border: 2px solid var(--border); background: var(--surface); margin-top: 0.1rem;
+  position: relative; z-index: 1;
+}
+.mvp-done .mvp-dot { background: var(--accent); border-color: var(--accent); }
+.mvp-done .mvp-dot::after {
+  content: '✓'; color: white; font-size: 0.7rem; font-weight: 700;
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+}
+.mvp-next .mvp-dot { border-color: var(--warning); }
+.mvp-content {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1rem 1.25rem; box-shadow: var(--shadow); flex: 1;
+}
+.mvp-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.25rem; }
+.mvp-done .mvp-label { color: var(--accent); }
+.mvp-next .mvp-label { color: var(--warning); }
+.mvp-title { font-weight: 700; font-size: 0.95rem; color: var(--text); margin-bottom: 0.5rem; }
+.mvp-content p { font-size: 0.83rem; color: var(--text-2); line-height: 1.65; }
+
+/* ── System Diagram ── */
+.sysdia {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 1.25rem;
+  align-items: start;
+}
+@media (max-width: 900px) { .sysdia { grid-template-columns: 1fr; } }
+
+.sysdia-local {
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1.25rem;
+}
+.sysdia-external {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sysdia-zone-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  margin-bottom: 1rem;
+}
+.sysdia-zone-title--purple { color: #7c3aed; }
+.sysdia-zone-title--green  { color: #16a34a; }
+
+/* Two flows side by side inside local zone */
+.sysdia-flows {
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.sysdia-divider {
+  background: #e2e8f0;
+  width: 1px;
+  align-self: stretch;
+}
+.sysdia-flow { display: flex; flex-direction: column; }
+.sysdia-flow-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  margin-bottom: 0.75rem;
+}
+
+/* Box styles */
+.sysdia-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  background: white;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.75rem 0.875rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+.sysdia-box--api    { border-color: #ddd6fe; background: #faf5ff; }
+.sysdia-box--purple { border-color: #ddd6fe; background: #faf5ff; }
+.sysdia-box--green  { border-color: #bbf7d0; background: #f0fdf4; }
+
+.sysdia-box-icon  { font-size: 1.1rem; flex-shrink: 0; line-height: 1.4; }
+.sysdia-box-title { font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.2rem; }
+.sysdia-box-sub   { font-size: 0.75rem; color: #64748b; display: block; line-height: 1.5; }
+.sysdia-box-note  { font-size: 0.72rem; color: #94a3b8; display: block; font-style: italic; margin-top: 0.2rem; }
+
+/* Inline library badge next to title */
+.sysdia-lib {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  vertical-align: middle;
+  margin-left: 0.4rem;
+}
+
+/* Highlight chip inside a box — for key design decisions */
+.sysdia-chip {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.72rem;
+  color: #2563eb;
+  background: #eff6ff;
+  border-left: 2px solid #93c5fd;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0 4px 4px 0;
+  line-height: 1.5;
+}
+
+/* Arrows */
+.sysdia-arrow-v {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.35rem 0;
+}
+
+/* SQLite bar */
+.sysdia-db {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  background: white;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.875rem 1rem;
+  margin-bottom: 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+.sysdia-db .sysdia-box-icon { font-size: 1.4rem; }
+
+/* Scheduler bar */
+.sysdia-scheduler {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  background: white;
+  border: 1.5px solid #fcd34d;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+
+/* External zone panels */
+.sysdia-api-zone {
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1rem;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.sysdia-api-zone--purple { border-color: #ddd6fe; background: #faf5ff; }
+.sysdia-api-zone--green  { border-color: #bbf7d0; background: #f0fdf4; }
+
+.sysdia-api-spacer { height: 0.75rem; }
+
+.sysdia-privacy {
+  margin-top: 0.75rem;
+  font-size: 0.72rem;
+  color: #7c3aed;
+  background: #ede9fe;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  line-height: 1.5;
+}
+
+/* Badge */
+.sysdia-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+/* Legend */
+.sysdia-legend {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+}
+.legend-item { color: #94a3b8; }
+.legend-local  { color: #475569; }
+.legend-api    { color: #7c3aed; }
+.legend-mvp3   { color: #d97706; }
+
+/* Stack table */
+.stack-grid { display: grid; gap: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+.stack-item {
+  display: grid; grid-template-columns: 120px 180px 1fr;
+  padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border-light);
+  font-size: 0.85rem; align-items: center; gap: 1rem;
+}
+.stack-item:last-child { border-bottom: none; }
+.stack-item:nth-child(even) { background: var(--surface-2); }
+.stack-layer { font-size: 0.75rem; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.stack-tech { font-weight: 600; color: var(--text); }
+.stack-why { color: var(--text-2); }
+</style>
+
+{% endblock %}

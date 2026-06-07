@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=75.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "steward"
+version = "0.1.0"
+description = "Personal home document manager and life admin alert system"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+dependencies = [
+    "anthropic>=0.40.0",
+    "apscheduler>=3.10.0",
+    "flask>=3.0.0",
+    "pydantic-settings>=2.0.0",
+    "pymupdf>=1.24.0",
+    "python-docx>=1.1.0",
+    "python-dotenv>=1.0.0",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-mock>=3.14.0",
+    "ruff>=0.4.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

@@ -1,0 +1,411 @@
+{% extends "base.html" %}
+{% block title %}Ask · STEWARD{% endblock %}
+{% block page_title %}Ask{% endblock %}
+{% block page_subtitle %}Have a conversation about your documents{% endblock %}
+
+{% block topbar_actions %}
+{% if history %}
+<form method="post" style="margin:0">
+  <input type="hidden" name="action" value="clear">
+  <button type="submit" class="btn btn-secondary">✕ Clear chat</button>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+
+<div class="chat-wrap">
+
+  <!-- ── Message thread ── -->
+  <div class="chat-thread" id="chat-thread">
+
+    {% if not history %}
+    <div class="chat-empty">
+      <div class="chat-empty-icon">💬</div>
+      <div class="chat-empty-title">Ask anything about your documents</div>
+      <div class="chat-empty-sub">STEWARD can answer questions about dates, amounts, expiry, ownership — anything in your vault.</div>
+      <div class="chat-examples">
+        <button class="example-chip" onclick="setQ('What documents do I have in my vault?')">What documents do I have?</button>
+        <button class="example-chip" onclick="setQ('What is due in the next 3 months?')">What's due soon?</button>
+        <button class="example-chip" onclick="setQ('List all items with warranty or AMC')">Show warranties & AMCs</button>
+        <button class="example-chip" onclick="setQ('What is my property address?')">Property address?</button>
+      </div>
+    </div>
+
+    {% else %}
+    {% for msg in history %}
+
+      {% if msg.role == 'user' %}
+      <div class="chat-msg chat-msg--user">
+        <div class="chat-bubble chat-bubble--user">{{ msg.content }}</div>
+        <div class="chat-avatar chat-avatar--user">You</div>
+      </div>
+
+      {% else %}
+      <div class="chat-msg chat-msg--assistant">
+        <div class="chat-avatar chat-avatar--bot">🏠</div>
+        <div class="chat-bubble chat-bubble--bot">{{ msg.content | replace('\n', '<br>') | safe }}</div>
+      </div>
+      {% endif %}
+
+    {% endfor %}
+    {% endif %}
+
+    <!-- Thinking indicator — always in DOM so JS can reference it on first message too -->
+    <div class="chat-msg chat-msg--assistant" id="thinking-row" style="display:none">
+      <div class="chat-avatar chat-avatar--bot">🏠</div>
+      <div class="chat-bubble chat-bubble--bot chat-thinking">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Input bar ── -->
+  <div class="chat-input-wrap">
+    <form method="post" id="ask-form" class="chat-input-form" autocomplete="off">
+      <input type="hidden" name="action" value="ask">
+      {# Hidden input holds the actual submitted value; visible input is cleared on send #}
+      <input type="hidden" name="question" id="question-hidden">
+      <input
+        type="text"
+        id="question-input"
+        class="chat-input"
+        placeholder="Ask a follow-up or a new question…"
+        autocomplete="off"
+        {% if not history %}autofocus{% endif %}
+      >
+      <button type="submit" class="chat-send-btn" id="ask-btn" title="Send">
+        ➤
+      </button>
+    </form>
+  </div>
+
+  {% if docs %}
+  <!-- ── Vault drawer — re-ingest from here when extraction looks wrong ── -->
+  <div class="vault-drawer">
+    <button class="vault-drawer-toggle" id="vault-toggle" onclick="toggleVault()" title="View and re-ingest your documents">
+      📄 {{ docs|length }} document{{ 's' if docs|length != 1 }} in vault
+      <span class="vault-toggle-arrow" id="vault-arrow">▾</span>
+    </button>
+    <div class="vault-doc-list" id="vault-list" style="display:none">
+      {% for doc in docs %}
+      <div class="vault-doc-row">
+        <span class="vault-doc-type type-{{ (doc.type or 'other')|lower }}">{{ doc.type or '—' }}</span>
+        <span class="vault-doc-name" title="{{ doc.filename }}">{{ doc.item or doc.filename }}</span>
+        <span class="vault-doc-status {% if doc.doc_type in ('scanned_pdf','mixed_pdf') %}vault-doc-scanned{% endif %}">
+          {% if doc.doc_type in ('scanned_pdf','mixed_pdf') %}📷 scanned{% else %}📝 text{% endif %}
+        </span>
+        <form method="POST" action="{{ url_for('reingest_document', doc_id=doc.id) }}" style="margin:0"
+              onsubmit="return confirm('Re-extract metadata for {{ doc.filename }}?\nThis uses higher quality settings (Sonnet + 150 DPI).')">
+          <button type="submit" class="vault-reingest-btn" title="Re-run extraction with higher quality — best for scanned/image docs">↺ Re-ingest</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+  // Auto-scroll to bottom of thread on load
+  const thread = document.getElementById('chat-thread');
+  if (thread) thread.scrollTop = thread.scrollHeight;
+
+  // Example chip click
+  function setQ(text) {
+    const inp = document.getElementById('question-input');
+    if (inp) { inp.value = text; inp.focus(); }
+  }
+
+  // Show user's question bubble + thinking indicator on submit
+  const form = document.getElementById('ask-form');
+  if (form) {
+    form.addEventListener('submit', function (e) {
+      const inputEl  = document.getElementById('question-input');
+      const hiddenEl = document.getElementById('question-hidden');
+      const q = inputEl.value.trim();
+      if (!q) { e.preventDefault(); return; }
+
+      // Copy to hidden field (the one that actually gets submitted) then clear visible
+      hiddenEl.value = q;
+      inputEl.value  = '';
+      inputEl.disabled = true;
+
+      // Hide empty state immediately
+      const emptyState = document.querySelector('.chat-empty');
+      if (emptyState) emptyState.style.display = 'none';
+
+      // Inject user question bubble so chat feels responsive
+      const userBubble = document.createElement('div');
+      userBubble.className = 'chat-msg chat-msg--user';
+      userBubble.innerHTML =
+        '<div class="chat-bubble chat-bubble--user">' +
+        q.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') +
+        '</div>' +
+        '<div class="chat-avatar chat-avatar--user">You</div>';
+
+      const thinkingRow = document.getElementById('thinking-row');
+      if (thinkingRow) {
+        thread.insertBefore(userBubble, thinkingRow);
+        thinkingRow.style.display = '';
+      } else {
+        thread.appendChild(userBubble);
+      }
+
+      // Disable send button
+      const btn = document.getElementById('ask-btn');
+      btn.disabled = true;
+      btn.textContent = '…';
+
+      // Scroll to show the dots
+      setTimeout(() => { thread.scrollTop = thread.scrollHeight; }, 30);
+    });
+  }
+
+  // Submit on Enter (Shift+Enter = newline if we ever switch to textarea)
+  const inp = document.getElementById('question-input');
+  if (inp) {
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (form) form.requestSubmit();  // triggers the submit event handler above
+      }
+    });
+    // Focus input after page load
+    if (!inp.disabled) inp.focus();
+  }
+
+  // Vault drawer toggle
+  function toggleVault() {
+    const list  = document.getElementById('vault-list');
+    const arrow = document.getElementById('vault-arrow');
+    if (!list) return;
+    const open = list.style.display !== 'none';
+    list.style.display  = open ? 'none' : '';
+    arrow.textContent   = open ? '▾' : '▴';
+  }
+</script>
+
+<style>
+/* ── Chat layout ── */
+.chat-wrap {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 130px);
+  max-height: 800px;
+}
+
+.chat-thread {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  scroll-behavior: smooth;
+}
+
+/* Empty state */
+.chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-3);
+}
+.chat-empty-icon  { font-size: 2.5rem; margin-bottom: 0.75rem; }
+.chat-empty-title { font-size: 1rem; font-weight: 600; color: var(--text-2); margin-bottom: 0.4rem; }
+.chat-empty-sub   { font-size: 0.85rem; color: var(--text-3); max-width: 400px; line-height: 1.6; margin-bottom: 1.5rem; }
+
+.chat-examples {
+  display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center;
+}
+.example-chip {
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 999px; padding: 0.35rem 1rem;
+  font-size: 0.8rem; color: var(--text-2); cursor: pointer;
+  font-family: inherit; transition: all .15s;
+}
+.example-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Message rows */
+.chat-msg {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.65rem;
+}
+.chat-msg--user      { flex-direction: row-reverse; }
+.chat-msg--assistant { flex-direction: row; }
+
+/* Avatars */
+.chat-avatar {
+  width: 1.8rem; height: 1.8rem; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.65rem; font-weight: 700; flex-shrink: 0;
+}
+.chat-avatar--user { background: var(--accent); color: white; }
+.chat-avatar--bot  { background: var(--surface-2); border: 1px solid var(--border); font-size: 0.9rem; }
+
+/* Bubbles */
+.chat-bubble {
+  max-width: 72%;
+  padding: 0.75rem 1rem;
+  border-radius: 16px;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  word-break: break-word;
+}
+.chat-bubble--user {
+  background: var(--accent);
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+.chat-bubble--bot {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  border-bottom-left-radius: 4px;
+  box-shadow: var(--shadow);
+}
+
+/* Typing dots */
+.chat-thinking {
+  display: flex; gap: 5px; align-items: center;
+  padding: 0.75rem 1.25rem;
+}
+.chat-thinking span {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--text-3);
+  animation: dot-bounce 1.2s infinite ease-in-out;
+}
+.chat-thinking span:nth-child(2) { animation-delay: .2s; }
+.chat-thinking span:nth-child(3) { animation-delay: .4s; }
+@keyframes dot-bounce {
+  0%, 80%, 100% { transform: scale(0.7); opacity: 0.4; }
+  40%           { transform: scale(1);   opacity: 1; }
+}
+
+/* Input bar */
+.chat-input-wrap {
+  padding: 0.75rem 0 0;
+  border-top: 1px solid var(--border);
+}
+.chat-input-form {
+  display: flex; gap: 0.5rem; align-items: center;
+}
+.chat-input {
+  flex: 1;
+  padding: 0.7rem 1rem;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: border-color .15s;
+}
+.chat-input:focus { outline: none; border-color: var(--accent); }
+.chat-send-btn {
+  width: 2.5rem; height: 2.5rem;
+  border-radius: 50%;
+  background: var(--accent); color: white;
+  border: none; cursor: pointer; font-size: 1rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s; flex-shrink: 0;
+}
+.chat-send-btn:hover    { background: #1d4ed8; }
+.chat-send-btn:disabled { background: var(--text-3); cursor: not-allowed; }
+
+/* ── Vault drawer ── */
+.vault-drawer {
+  border-top: 1px solid var(--border);
+  margin-top: 0.5rem;
+}
+.vault-drawer-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.25rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--text-3);
+  font-family: inherit;
+  text-align: left;
+  transition: color .15s;
+}
+.vault-drawer-toggle:hover { color: var(--text-2); }
+.vault-toggle-arrow { margin-left: auto; font-size: 0.7rem; }
+
+.vault-doc-list {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.25rem 0 0.5rem;
+}
+.vault-doc-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.25rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+}
+.vault-doc-row:hover { background: var(--surface-2); }
+.vault-doc-type {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.vault-doc-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.vault-doc-status {
+  font-size: 0.68rem;
+  color: var(--text-3);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.vault-doc-scanned { color: #f59e0b; }
+
+.vault-reingest-btn {
+  padding: 0.2rem 0.6rem;
+  border-radius: 5px;
+  border: 1.5px solid #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.vault-reingest-btn:hover {
+  border-color: #f59e0b;
+  color: #b45309;
+  background: #fffbeb;
+}
+</style>
+
+{% endblock %}

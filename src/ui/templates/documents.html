@@ -1,0 +1,436 @@
+{% extends "base.html" %}
+{% block title %}Documents · STEWARD{% endblock %}
+{% block page_title %}Documents{% endblock %}
+{% block page_subtitle %}{{ docs|length }} document{{ 's' if docs|length != 1 }} in your vault{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('ingest') }}" class="btn btn-primary">+ Upload</a>
+{% endblock %}
+
+{% block content %}
+
+{# ── Doc card macro — must be declared before use ── #}
+{% macro render_doc_card(doc, today) %}
+{% set is_done = doc.status == 'done' %}
+{% set is_overdue = (not is_done) and doc.next_due_date and doc.next_due_date < today %}
+<div class="doc-card {% if is_done %}doc-card--done{% elif is_overdue %}doc-card--overdue{% endif %}"
+     data-search="{{ ([doc.item, doc.type, doc.filename, doc.notes] + (doc.tags or []))|join(' ')|lower }}"
+     data-type="{{ (doc.type or '')|lower }}">
+
+  <div class="doc-main">
+    <div class="doc-header">
+      <span class="doc-type-badge type-{{ (doc.type or 'other')|lower }}">
+        {{ doc.type or 'Document' }}
+      </span>
+      {% if is_done %}
+      <span class="doc-done-badge">✓ Done</span>
+      {% elif is_overdue %}
+      <span class="doc-overdue-badge">⚠ Overdue</span>
+      {% endif %}
+      <span class="doc-filename">{{ doc.filename }}</span>
+    </div>
+
+    <div class="doc-item">{{ doc.item or '(item not identified)' }}</div>
+
+    <div class="doc-dates">
+      {% if doc.purchase_date %}
+      <span class="date-chip">🛒 {{ doc.purchase_date }}</span>
+      {% endif %}
+      {% if doc.next_due_date %}
+        {% if is_overdue %}
+        <span class="date-chip due-chip due-overdue">⚠ Due {{ doc.next_due_date }}</span>
+        {% elif is_done %}
+        <span class="date-chip due-chip due-done">⏰ {{ doc.next_due_date }}</span>
+        {% else %}
+        <span class="date-chip due-chip">⏰ Due {{ doc.next_due_date }}</span>
+        {% endif %}
+      {% endif %}
+      {% if not doc.purchase_date and not doc.next_due_date %}
+      <span class="date-chip none-chip">No dates</span>
+      {% endif %}
+    </div>
+
+    {% if doc.notes %}
+    <div class="doc-notes">{{ doc.notes[:180] }}{% if doc.notes|length > 180 %}…{% endif %}</div>
+    {% endif %}
+
+    {% if doc.tags %}
+    <div class="doc-tags">
+      {% for tag in doc.tags %}
+      <span class="tag">{{ tag }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if doc.file_size_bytes or doc.input_tokens %}
+    <div class="doc-stats">
+      {% if doc.file_size_bytes %}
+        {% set mb = doc.file_size_bytes / 1048576 %}
+        {% if mb >= 1 %}
+          <span class="doc-stat">📦 {{ "%.1f"|format(mb) }} MB</span>
+        {% else %}
+          <span class="doc-stat">📦 {{ (doc.file_size_bytes / 1024)|int }} KB</span>
+        {% endif %}
+      {% endif %}
+      {% if doc.input_tokens %}
+      <span class="doc-stat">↑ {{ "{:,}".format(doc.input_tokens) }} in</span>
+      {% endif %}
+      {% if doc.output_tokens %}
+      <span class="doc-stat">↓ {{ "{:,}".format(doc.output_tokens) }} out</span>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Actions column -->
+  <div class="doc-actions-col">
+    <div class="doc-added">{{ doc.created_at[:10] }}</div>
+    <div class="doc-type-label">{{ doc.doc_type.replace('_', ' ') }}</div>
+
+    <div class="doc-action-btns">
+      <a href="{{ url_for('open_document', doc_id=doc.id) }}"
+         class="doc-btn doc-btn--open"
+         title="Open in default app">
+        ↗ Open
+      </a>
+
+      <form method="POST" action="{{ url_for('toggle_done', doc_id=doc.id) }}" style="margin:0">
+        {% if is_done %}
+        <button type="submit" class="doc-btn doc-btn--undone" title="Mark as active">↩ Undo</button>
+        {% else %}
+        <button type="submit" class="doc-btn doc-btn--done" title="Mark as paid / resolved">✓ Done</button>
+        {% endif %}
+      </form>
+
+      <form method="POST" action="{{ url_for('reingest_document', doc_id=doc.id) }}" style="margin:0"
+            onsubmit="return confirm('Re-extract metadata for {{ doc.filename }}? The current record will be replaced.')">
+        <button type="submit" class="doc-btn doc-btn--reingest" title="Re-run Claude extraction — useful if the data looks wrong">↺ Re-ingest</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+{% if not docs %}
+<div class="empty-state">
+  <div class="empty-icon">📂</div>
+  <p>Your vault is empty. Upload your first document to get started.</p>
+  <a href="{{ url_for('ingest') }}" class="btn btn-primary">Upload a document</a>
+</div>
+
+{% else %}
+
+<!-- ── Search bar ── -->
+<div class="docs-toolbar">
+  <div class="docs-search-wrap">
+    <span class="docs-search-icon">🔍</span>
+    <input
+      id="doc-search"
+      type="text"
+      class="docs-search"
+      placeholder="Search by name, type, tag, date…"
+      autocomplete="off"
+    >
+    <button id="doc-search-clear" class="docs-search-clear" style="display:none">✕</button>
+  </div>
+  <div class="docs-filter-chips" id="type-chips">
+    <button class="type-chip active" data-type="all">All</button>
+    {% set types = docs | map(attribute='type') | select | unique | list | sort %}
+    {% for t in types %}
+    <button class="type-chip" data-type="{{ t|lower }}">{{ t }}</button>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ── Grouped by type ── -->
+{% set all_types = [''] + (docs | map(attribute='type') | select | unique | list | sort) %}
+
+{# Collect docs with no type separately #}
+{% set ungrouped = docs | selectattr('type', 'none') | list %}
+{% set typed_docs = docs | selectattr('type', 'defined') | selectattr('type', 'ne', None) | list %}
+{% set sorted_types = typed_docs | map(attribute='type') | unique | list | sort %}
+
+{% for group_type in sorted_types %}
+  {% set group_docs = typed_docs | selectattr('type', 'equalto', group_type) | list %}
+  {% if group_docs %}
+  <div class="type-group" data-group-type="{{ group_type|lower }}">
+    <div class="type-group-header">
+      <span class="type-group-title">{{ group_type }}</span>
+      <span class="type-group-count">{{ group_docs|length }}</span>
+    </div>
+    <div class="doc-grid">
+      {% for doc in group_docs %}
+        {{ render_doc_card(doc, today) }}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+{% endfor %}
+
+{% if ungrouped %}
+<div class="type-group" data-group-type="other">
+  <div class="type-group-header">
+    <span class="type-group-title">Other</span>
+    <span class="type-group-count">{{ ungrouped|length }}</span>
+  </div>
+  <div class="doc-grid">
+    {% for doc in ungrouped %}
+      {{ render_doc_card(doc, today) }}
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div id="no-results" style="display:none" class="empty-state">
+  <div class="empty-icon">🔍</div>
+  <p>No documents match your search.</p>
+</div>
+
+{% endif %}
+
+<!-- ── JS: search + type filter ── -->
+<script>
+(function () {
+  const searchInput  = document.getElementById('doc-search');
+  const clearBtn     = document.getElementById('doc-search-clear');
+  const typeChips    = document.querySelectorAll('.type-chip');
+  const groups       = document.querySelectorAll('.type-group');
+  const noResults    = document.getElementById('no-results');
+
+  let activeType = 'all';
+  let searchQ    = '';
+
+  function apply() {
+    let anyVisible = false;
+
+    document.querySelectorAll('.doc-card').forEach(card => {
+      const matchSearch = !searchQ || card.dataset.search.includes(searchQ);
+      const matchType   = activeType === 'all' || card.dataset.type === activeType;
+      card.style.display = (matchSearch && matchType) ? '' : 'none';
+    });
+
+    groups.forEach(group => {
+      const hasVisible = [...group.querySelectorAll('.doc-card')]
+        .some(c => c.style.display !== 'none');
+      group.style.display = hasVisible ? '' : 'none';
+      if (hasVisible) anyVisible = true;
+    });
+
+    noResults.style.display = anyVisible ? 'none' : '';
+  }
+
+  searchInput.addEventListener('input', function () {
+    searchQ = this.value.toLowerCase().trim();
+    clearBtn.style.display = searchQ ? '' : 'none';
+    apply();
+  });
+
+  clearBtn.addEventListener('click', function () {
+    searchInput.value = '';
+    searchQ = '';
+    clearBtn.style.display = 'none';
+    searchInput.focus();
+    apply();
+  });
+
+  typeChips.forEach(chip => {
+    chip.addEventListener('click', function () {
+      typeChips.forEach(c => c.classList.remove('active'));
+      this.classList.add('active');
+      activeType = this.dataset.type;
+      apply();
+    });
+  });
+})();
+</script>
+
+<!-- ── Styles ── -->
+<style>
+/* Toolbar */
+.docs-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+.docs-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.docs-search-icon {
+  position: absolute;
+  left: 0.875rem;
+  font-size: 0.9rem;
+  color: var(--text-3);
+  pointer-events: none;
+}
+.docs-search {
+  width: 100%;
+  padding: 0.625rem 2.5rem 0.625rem 2.5rem;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: border-color .15s;
+  box-shadow: var(--shadow);
+}
+.docs-search:focus { outline: none; border-color: var(--accent); }
+.docs-search-clear {
+  position: absolute;
+  right: 0.75rem;
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.25rem;
+}
+.docs-search-clear:hover { color: var(--text); }
+
+/* Type filter chips */
+.docs-filter-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.type-chip {
+  padding: 0.3rem 0.875rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .15s;
+  font-family: inherit;
+}
+.type-chip:hover  { border-color: var(--accent); color: var(--accent); }
+.type-chip.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+/* Type groups */
+.type-group { margin-bottom: 1.75rem; }
+.type-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+.type-group-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-3);
+}
+.type-group-count {
+  font-size: 0.7rem;
+  background: var(--surface-2);
+  color: var(--text-3);
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+/* Doc card base */
+.doc-card {
+  display: flex;
+  gap: 1rem;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.125rem;
+  box-shadow: var(--shadow);
+  transition: border-color .15s;
+}
+.doc-card:hover { border-color: var(--accent); }
+
+/* Done state */
+.doc-card--done {
+  opacity: 0.65;
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.doc-card--done:hover { border-color: #4ade80; }
+
+/* Overdue state */
+.doc-card--overdue {
+  border-color: #fca5a5;
+  background: #fff8f8;
+}
+.doc-card--overdue:hover { border-color: #f87171; }
+
+.doc-main { flex: 1; min-width: 0; }
+
+.doc-header { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
+.doc-done-badge {
+  font-size: 0.7rem; font-weight: 700; background: #dcfce7; color: #15803d;
+  border: 1px solid #bbf7d0; padding: 0.1rem 0.5rem; border-radius: 999px;
+}
+.doc-overdue-badge {
+  font-size: 0.7rem; font-weight: 700; background: #fee2e2; color: #b91c1c;
+  border: 1px solid #fca5a5; padding: 0.1rem 0.5rem; border-radius: 999px;
+}
+
+.doc-stats { display: flex; gap: 0.75rem; margin-top: 0.5rem; flex-wrap: wrap; }
+.doc-stat  { font-size: 0.72rem; color: #94a3b8; font-variant-numeric: tabular-nums; }
+
+.due-overdue { background: #fee2e2 !important; color: #b91c1c !important; border-color: #fca5a5 !important; }
+.due-done    { background: #f0fdf4 !important; color: #6b7280 !important; text-decoration: line-through; }
+
+/* Actions column */
+.doc-actions-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  min-width: 90px;
+}
+.doc-added     { font-size: 0.72rem; color: var(--text-3); }
+.doc-type-label { font-size: 0.7rem; color: var(--text-3); text-align: right; }
+.doc-action-btns { display: flex; flex-direction: column; gap: 0.4rem; margin-top: auto; }
+
+.doc-btn {
+  display: inline-block;
+  padding: 0.3rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  border: 1.5px solid transparent;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.doc-btn--open {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-2);
+}
+.doc-btn--open:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+
+.doc-btn--done {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #15803d;
+}
+.doc-btn--done:hover { background: #dcfce7; border-color: #4ade80; }
+
+.doc-btn--reingest {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #64748b;
+}
+.doc-btn--reingest:hover { border-color: #f59e0b; color: #b45309; background: #fffbeb; }
+
+.doc-btn--undone {
+  background: #fff8f8;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+.doc-btn--undone:hover { background: #fee2e2; }
+</style>
+
+{% endblock %}

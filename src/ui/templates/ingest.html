@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+{% block title %}Upload · STEWARD{% endblock %}
+{% block page_title %}Upload Document{% endblock %}
+{% block page_subtitle %}PDF (text or scanned), DOCX, or paste text directly{% endblock %}
+
+{% block content %}
+
+<!-- ── Progress panel (shows when jobs are tracked in session) ── -->
+{% if recent_jobs %}
+<div class="progress-panel" id="progress-panel">
+  <div class="progress-panel-header">
+    <span class="progress-panel-title">📥 Upload progress</span>
+    <span class="progress-summary" id="progress-summary"></span>
+    <a href="{{ url_for('documents') }}" class="btn btn-secondary btn-sm" id="view-docs-btn" style="display:none">View Documents →</a>
+  </div>
+  <div class="progress-list" id="progress-list">
+    {% for job in recent_jobs %}
+    <div class="progress-row" id="job-{{ job.job_id }}" data-status="{{ job.status }}">
+      <span class="progress-icon" id="icon-{{ job.job_id }}">{{ {'queued':'⏳','processing':'🔄','done':'✅','error':'❌','duplicate':'⚠️'}[job.status] or '⏳' }}</span>
+      <span class="progress-filename">{{ job.filename }}</span>
+      <span class="progress-msg" id="msg-{{ job.job_id }}">{{ job.message }}</span>
+      <span class="progress-status-label" id="lbl-{{ job.job_id }}">{{ job.status }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Upload form ── -->
+<div class="form-card">
+  <h2>Upload files</h2>
+  <form method="post" enctype="multipart/form-data" id="upload-form">
+    <div class="upload-area" id="drop-zone">
+      <div class="upload-icon">📄</div>
+      <div class="upload-text">Drag & drop files here, or click to browse</div>
+      <div class="upload-hint">PDF (text or scanned), DOCX, TXT · max 50 MB per file · multiple files OK</div>
+      <input type="file" name="files" id="file-input" multiple accept=".pdf,.docx,.doc,.txt,.md">
+    </div>
+    <div id="file-list" style="margin-top: 0.75rem;"></div>
+    <div style="margin-top: 1rem; display:flex; align-items:center; gap:1rem">
+      <button type="submit" class="btn btn-primary" id="upload-btn">Upload & Extract</button>
+      <span id="upload-spinner" style="display:none; color:var(--text-3); font-size:0.85rem">
+        ⏳ Saving files… Claude is processing in the background.
+      </span>
+    </div>
+  </form>
+</div>
+
+<!-- ── Email ingest card ── -->
+<div class="form-card email-card">
+  <div class="email-card-header">
+    <h2>📧 Email to ingest</h2>
+    {% if email_configured %}
+    <form method="POST" action="{{ url_for('email_poll_now') }}" style="margin:0">
+      <button type="submit" class="btn btn-secondary btn-sm">Check now</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if email_configured %}
+    <p class="email-address-line">
+      Forward or send attachments to <strong class="email-addr">{{ steward_email }}</strong>
+    </p>
+    <p class="email-hint">PDF, DOCX, or TXT attachments are auto-ingested every {{ settings.email_poll_minutes }} minutes. No subject line needed.</p>
+
+    <div class="email-status-row" id="email-status-row">
+      {% if email_status %}
+        {% if email_status.success %}
+        <span class="email-status-dot dot-ok"></span>
+        <span class="email-status-text">
+          Last checked {{ email_status.checked_at_str() }} ·
+          {% if email_status.emails_scanned == 0 %}no new mail{% else %}{{ email_status.emails_scanned }} email(s) scanned, {{ email_status.attachments_queued }} queued{% endif %}
+        </span>
+        {% else %}
+        <span class="email-status-dot dot-err"></span>
+        <span class="email-status-text err-text">{{ email_status.error }}</span>
+        {% endif %}
+      {% else %}
+        <span class="email-status-dot dot-idle"></span>
+        <span class="email-status-text">Not checked yet — will poll in {{ settings.email_poll_minutes }} min</span>
+      {% endif %}
+    </div>
+
+    <div class="email-setup-steps">
+      <div class="setup-step">
+        <span class="step-num">1</span>
+        <span>Email any PDF, DOCX or TXT to <strong>{{ steward_email }}</strong></span>
+      </div>
+      <div class="setup-step">
+        <span class="step-num">2</span>
+        <span>STEWARD picks it up automatically (or click "Check now")</span>
+      </div>
+      <div class="setup-step">
+        <span class="step-num">3</span>
+        <span>Claude extracts metadata — it appears in Documents</span>
+      </div>
+    </div>
+
+  {% else %}
+    <p class="email-hint">Add these two lines to your <code>.env</code> file to enable email ingestion:</p>
+    <div class="email-setup-code">
+      <code>STEWARD_EMAIL=you@gmail.com</code>
+      <code>STEWARD_EMAIL_PASSWORD=xxxx-xxxx-xxxx-xxxx</code>
+    </div>
+    <p class="email-hint" style="margin-top:0.75rem">
+      The password is a <strong>Gmail App Password</strong> — not your account password.
+      Generate one at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a>.
+    </p>
+  {% endif %}
+</div>
+
+<!-- ── Paste text form ── -->
+<div class="form-card">
+  <h2>Or paste text</h2>
+  <form method="post">
+    <div class="form-group">
+      <label for="paste_title">Title <span style="color:var(--text-3)">(optional)</span></label>
+      <input type="text" name="paste_title" id="paste_title"
+             placeholder="e.g. Water Filter Purchase Note">
+    </div>
+    <div class="form-group">
+      <label for="paste_text">Content</label>
+      <textarea name="paste_text" id="paste_text" rows="7"
+                placeholder="Paste your document text here..."></textarea>
+    </div>
+    <button type="submit" class="btn btn-secondary">Save & Extract</button>
+  </form>
+</div>
+
+<!-- ── Progress polling script ── -->
+<script>
+(function () {
+  // Collect job IDs from the rendered rows
+  const rows = document.querySelectorAll('.progress-row');
+  if (!rows.length) return;
+
+  const jobIds   = [...rows].map(r => r.id.replace('job-', ''));
+  const ICONS    = { queued:'⏳', processing:'🔄', done:'✅', error:'❌', duplicate:'⚠️' };
+  const LABELS   = { queued:'Queued', processing:'Processing…', done:'Done', error:'Error', duplicate:'Already saved' };
+  let   polling  = null;
+
+  function updateRow(job) {
+    const row  = document.getElementById('job-' + job.job_id);
+    if (!row) return;
+    row.dataset.status = job.status;
+    document.getElementById('icon-' + job.job_id).textContent = ICONS[job.status] || '⏳';
+    document.getElementById('lbl-'  + job.job_id).textContent = LABELS[job.status] || job.status;
+    document.getElementById('msg-'  + job.job_id).textContent = job.message || '';
+
+    // Row colour
+    row.classList.remove('row-done','row-error','row-duplicate','row-processing');
+    if (job.status === 'done')       row.classList.add('row-done');
+    else if (job.status === 'error') row.classList.add('row-error');
+    else if (job.status === 'duplicate') row.classList.add('row-duplicate');
+    else if (job.status === 'processing') row.classList.add('row-processing');
+  }
+
+  function updateSummary(jobs) {
+    const done  = jobs.filter(j => j.status === 'done').length;
+    const err   = jobs.filter(j => j.status === 'error').length;
+    const dup   = jobs.filter(j => j.status === 'duplicate').length;
+    const total = jobs.length;
+    const finished = done + err + dup;
+    const el = document.getElementById('progress-summary');
+    if (el) el.textContent = `${finished} / ${total} complete`;
+
+    // Show "View Documents" once everything settled
+    const allDone = jobs.every(j => ['done','error','duplicate'].includes(j.status));
+    const btn = document.getElementById('view-docs-btn');
+    if (btn && allDone && done > 0) btn.style.display = '';
+  }
+
+  function poll() {
+    fetch('/ingest/status?ids=' + jobIds.join(','))
+      .then(r => r.json())
+      .then(data => {
+        data.jobs.forEach(updateRow);
+        updateSummary(data.jobs);
+        // Stop polling when nothing is active
+        if (data.active === 0) {
+          clearInterval(polling);
+          polling = null;
+        }
+      })
+      .catch(() => { /* network error, will retry next tick */ });
+  }
+
+  // Start polling immediately
+  poll();
+  polling = setInterval(poll, 1500);
+})();
+</script>
+
+<!-- ── File picker UX ── -->
+<script>
+(function () {
+  const dropZone  = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  const fileList  = document.getElementById('file-list');
+  const uploadBtn = document.getElementById('upload-btn');
+  const spinner   = document.getElementById('upload-spinner');
+
+  if (!dropZone) return;
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', ()=> dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    fileInput.files = e.dataTransfer.files;
+    updateFileList();
+  });
+  fileInput.addEventListener('change', updateFileList);
+
+  function updateFileList() {
+    const files = Array.from(fileInput.files);
+    fileList.innerHTML = files.map(f =>
+      `<span class="file-chip">📎 ${f.name} &nbsp;(${(f.size/1024).toFixed(0)} KB)</span>`
+    ).join('');
+  }
+
+  document.getElementById('upload-form').addEventListener('submit', function () {
+    if (fileInput.files.length === 0) return;
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = 'Uploading…';
+    spinner.style.display = '';
+  });
+})();
+</script>
+
+<!-- ── Page styles ── -->
+<style>
+.progress-panel {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--shadow);
+}
+.progress-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.progress-panel-title { font-weight: 700; font-size: 0.9rem; color: var(--text); }
+.progress-summary     { font-size: 0.8rem; color: var(--text-3); }
+.btn-sm { padding: 0.3rem 0.75rem; font-size: 0.8rem; }
+
+.progress-list { display: flex; flex-direction: column; gap: 0.4rem; }
+
+.progress-row {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr auto auto;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-light);
+  font-size: 0.83rem;
+  transition: background .3s;
+}
+.progress-icon     { font-size: 1rem; text-align: center; }
+.progress-filename { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress-msg      { font-size: 0.75rem; color: var(--text-3); }
+.progress-status-label {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-3);
+  white-space: nowrap;
+}
+
+.row-processing { border-color: #93c5fd; background: #eff6ff; }
+.row-processing .progress-status-label { color: #2563eb; }
+.row-done       { border-color: #86efac; background: #f0fdf4; }
+.row-done .progress-status-label { color: #15803d; }
+.row-error      { border-color: #fca5a5; background: #fff8f8; }
+.row-error .progress-status-label { color: #b91c1c; }
+.row-duplicate  { border-color: #fcd34d; background: #fffbeb; }
+.row-duplicate .progress-status-label { color: #92400e; }
+
+/* Email card */
+.email-card { border-color: #bfdbfe; }
+.email-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;
+}
+.email-card-header h2 { margin: 0; }
+.email-address-line { margin: 0.25rem 0 0.1rem; font-size: 0.9rem; }
+.email-addr {
+  background: #eff6ff; border: 1px solid #bfdbfe;
+  border-radius: 6px; padding: 0.15rem 0.5rem;
+  font-family: monospace; font-size: 0.9rem; color: #1d4ed8;
+}
+.email-hint { font-size: 0.82rem; color: var(--text-3); margin: 0.4rem 0; }
+
+.email-status-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin: 0.6rem 0; font-size: 0.8rem;
+}
+.email-status-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.dot-ok   { background: #22c55e; }
+.dot-err  { background: #ef4444; }
+.dot-idle { background: #94a3b8; }
+.email-status-text { color: var(--text-3); }
+.err-text { color: #b91c1c; }
+
+.email-setup-steps {
+  display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.75rem;
+}
+.setup-step {
+  display: flex; align-items: flex-start; gap: 0.6rem; font-size: 0.83rem;
+}
+.step-num {
+  width: 1.3rem; height: 1.3rem; border-radius: 50%;
+  background: #dbeafe; color: #1d4ed8;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; font-weight: 700; flex-shrink: 0; margin-top: 0.05rem;
+}
+
+.email-setup-code {
+  display: flex; flex-direction: column; gap: 0.3rem; margin: 0.5rem 0;
+}
+.email-setup-code code {
+  display: block; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 0.4rem 0.75rem; font-size: 0.82rem;
+  color: var(--text); font-family: monospace;
+}
+</style>
+
+{% endblock %}
